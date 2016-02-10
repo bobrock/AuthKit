@@ -80,6 +80,7 @@ Here is an example:
 
 from paste.deploy.converters import asbool
 from paste.auth.auth_tkt import *
+import md5
 import os
 import time
 import logging
@@ -372,7 +373,7 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
             environ['REMOTE_USER'] = userid
             if environ.get('REMOTE_USER_TOKENS'):
                 # We want to add tokens/roles to what's there:
-                tokens = environ['REMOTE_USER_TOKENS'] + ',' + tokens
+                tokens = str(environ['REMOTE_USER_TOKENS']) + ',' + str(tokens)
             environ['REMOTE_USER_TOKENS'] = tokens
             environ['REMOTE_USER_DATA'] = user_data
             environ['AUTH_TYPE'] = 'cookie'

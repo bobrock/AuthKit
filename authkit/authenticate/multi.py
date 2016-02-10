@@ -40,9 +40,9 @@ class MultiHandler(multi.MultiHandler):
                     log.debug("Multi: No binding was found for the check")
                     # XXX Shouldn't this be returning the writable to the application?
                     writable = start_response(
-                        status_[0], 
-                        headers_ and headers_[0] or [],
-                        exc_info_[0]
+                        status_[-1], 
+                        headers_ and headers_[-1] or [],
+                        exc_info_[-1]
                     )
                     return writable
                 else:
@@ -73,7 +73,7 @@ class MultiHandler(multi.MultiHandler):
                 if not len(headers_):
                     raise Exception('No headers were returned by the '
                                     'application')
-                if checker(environ, status_[0], headers_ and headers_[0] or []):
+                if checker(environ, status_[-1], headers_ and headers_[-1] or []):
                     log.debug(
                         "MultiMiddleware self.checker check() returning %r", 
                         binding
@@ -85,14 +85,14 @@ class MultiHandler(multi.MultiHandler):
         app_iter = app(environ, start_response)
         if not result_:
             raise Exception('Invalid WSGI response, did the application return an iterable?')
-        if result_[0] is None:
+        if result_[-1] is None:
             # The check failed and the initial app should be used.
             return app_iter
         else:
             # Close the unused app which we don't want
             if hasattr(app_iter, 'close'):
                 app_iter.close()
-            return result_[0]
+            return result_[-1]
 
 def status_checker(environ, status, headers):
     """

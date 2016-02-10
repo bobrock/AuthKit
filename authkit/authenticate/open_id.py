@@ -372,7 +372,11 @@ class AuthOpenIDHandler:
             username = info.identity_url
             if info.endpoint.canonicalID:
                 username = cgi.escape(info.endpoint.canonicalID)
-            user_data = str(sreg.SRegResponse.fromSuccessResponse(info).getExtensionArgs())
+            sreg_info = sreg.SRegResponse.fromSuccessResponse(info)
+            if sreg_info:
+                user_data = str(sreg.SRegResponse.fromSuccessResponse(info).getExtensionArgs())
+            else:
+                user_data = ""
             # Set the cookie
             if self.urltouser:
                 username = self.urltouser(environ, info.identity_url)
@@ -464,6 +468,7 @@ class OpenIDUserSetter(AuthKitUserSetter):
             sreg_required=options['sreg_required'],
             sreg_optional=options['sreg_optional'],
             sreg_policyurl=options['sreg_policyurl'],
+            session_middleware=options['session_middleware']
         )
         self.app = app
 
@@ -502,7 +507,7 @@ def load_openid_config(
         'sreg_required': auth_conf.get('sreg.required'),
         'sreg_optional': auth_conf.get('sreg.optional'),
         'sreg_policyurl': auth_conf.get('sreg.policyurl'),
-        'session_middleware': 'beaker.session',
+        'session_middleware': auth_conf.get('session.middleware','beaker.session'),
     }
     auth_handler_params={
         'template':user_setter_params['template'],
@@ -510,6 +515,16 @@ def load_openid_config(
         'baseurl':user_setter_params['baseurl'],
         'charset':user_setter_params['charset'],
     }
+    # The following lines were suggested in #59 but I don't know
+    # why they are needed because you shouldn't be using the 
+    # user management API.
+    # authenticate_conf = strip_base(auth_conf, 'authenticate.')
+    # app, authfunc, users = get_authenticate_function(
+    #     app, 
+    #     authenticate_conf, 
+    #     prefix=prefix+'authenticate.', 
+    #     format='basic'
+    # )
     return app, auth_handler_params, user_setter_params
     
 def make_passurl_handler(

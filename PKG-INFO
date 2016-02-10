@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: AuthKit
-Version: 0.4.1
+Version: 0.4.2
 Summary: An authentication and authorization toolkit for WSGI applications and frameworks
 Home-page: http://authkit.org/
 Author: James Gardner
@@ -49,6 +49,14 @@ Description:
         
         Changes
         =======
+        
+        0.4.2
+        
+        * Applied most of #59 and tested the two OpenID examples
+        * Added support for WebOb HTTPExceptions to remove a deprecation warning in
+        Pylons 0.9.7
+        * Fixed a missing md5 import in the cookie module
+        * Applied patch in ticket #52
         
         0.4.1
         

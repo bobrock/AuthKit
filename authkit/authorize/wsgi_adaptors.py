@@ -24,6 +24,7 @@ directory or have a look at the AuthKit manual.
 """
 
 from paste import httpexceptions
+from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 class PermissionSetupError(Exception):
     pass
@@ -39,7 +40,7 @@ class PermissionError(httpexceptions.HTTPClientError):
     """
     pass
 
-class NotAuthenticatedError(PermissionError):
+class NotAuthenticatedError(PermissionError, HTTPUnauthorized):
     """
     Raised when a permission check fails because the user is not authenticated.
 
@@ -51,7 +52,7 @@ class NotAuthenticatedError(PermissionError):
     code = 401
     title = 'Not Authenticated'
 
-class NotAuthorizedError(PermissionError):
+class NotAuthorizedError(PermissionError, HTTPForbidden):
     """
     Raised when a permission check fails because the user is not authorized.
 

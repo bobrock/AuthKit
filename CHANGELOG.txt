@@ -1,5 +1,13 @@
 Changes
 =======
+
+0.4.2
+
+* Applied most of #59 and tested the two OpenID examples
+* Added support for WebOb HTTPExceptions to remove a deprecation warning in 
+  Pylons 0.9.7
+* Fixed a missing md5 import in the cookie module
+* Applied patch in ticket #52
    
 0.4.1 
 
