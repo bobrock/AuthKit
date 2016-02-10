@@ -12,8 +12,8 @@ systems that operate as middleware in addition to purely processing a sign-on
 request.
 """
 import logging
+from xml.etree import ElementTree
 
-from elementtree import ElementTree
 from paste.request import construct_url
 from paste.util.converters import asbool
 from paste.httpexceptions import HTTPNotFound, HTTPSeeOther, HTTPForbidden
