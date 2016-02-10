@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: AuthKit
-Version: 0.4.3
+Version: 0.4.4
 Summary: An authentication and authorization toolkit for WSGI applications and frameworks
 Home-page: http://authkit.org/
 Author: James Gardner
@@ -24,19 +24,21 @@ Description:
         with a database, LDAP connection or your own custom system
         *   Plays nicely with the `Pylons <http://pylonshq.com>`_ web framework
         
-        There is also a `development version
-        <http://authkit.org/svn/AuthKit/trunk#egg=AuthKit-dev>`_.
+        There is also a `development version <https://hg.3aims.com/public/AuthKit>`_
+        which you can clone using Mercurial with this command: ``hg clone
+        https://hg.3aims.com/public/AuthKit``.
         
         Get Started
         ===========
         
-        * `Download and Installation <http://python.org/pypi/AuthKit/0.4.0>`_
         * `Pylons Book <http://pylonsbook.com>`_ (the two chapters on *Authentication and
         Authorization* and *Advanced AuthKit* form the AuthKit 0.4 documentation)
         * `Module Reference <http://authkit.org/docs/0.4/module-index.html>`_
         * `AuthKit Cookbook <http://wiki.pylonshq.com/display/authkitcookbook/Home>`_
-        * `Trac <http://authkit.org/trac>`_ - Tickets, Wiki, Subversion
-        * `Examples <http://authkit.org/trac/browser/AuthKit/trunk/examples>`_
+        * `Trac <http://authkit.org/trac>`_ - Tickets, Wiki [Note: subversion is out of
+        date]
+        * `Examples <https://hg.3aims.com/public/AuthKit/AuthKit/trunk/examples>`_
+        (click the files link).
         
         Author
         ======
@@ -49,6 +51,16 @@ Description:
         
         Changes
         =======
+        
+        0.4.4
+        
+        * Added patch by Phil Kershaw for Attribute exhange in OpenID
+        * Added patch by Phil Kershaw for hiding the continue button during
+        OpenID redirection
+        * Changed cookie handling so that if nouserincookie is set, the user data as
+        well as the username is stored in the session rather than the cookie
+        * Added a user_data function to the form method so you can set arbitrary
+        user data messages via the same mechanism as other options
         
         0.4.3
         
@@ -90,10 +102,10 @@ Description:
         
         * Added ``setup.fakeuser`` option which automatically sets the REMOTE_USER
         so that it appears someone has signed in. Useful with setup.enable = False
-        ********************************************************************************
-        * The ``setup.enable = false`` option now also disables  authorisation         *
-        * checks (reported by Rick Flosi)                                              *
-        ********************************************************************************
+        
+        * The ``setup.enable = false`` option now also disables  authorisation
+        checks (reported by Rick Flosi)
+        
         * Applied patch from Pawel Niewiadomski to fix #53
         * Changed the import of the openid.sreg module to openid.extensions.sreg
         * Fixed the encoding of the form.py file

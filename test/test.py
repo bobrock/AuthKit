@@ -98,13 +98,13 @@ def test_intercept():
         setup_intercept = "403, 702",
     )
     res = TestApp(app).get('/403', status=401)
-    assertEqual(res.header('content-type'), 'text/plain')
+    assertEqual(res.header('content-type'), 'text/plain; charset=utf8')
     # XXX Should this keep the original status code or not?
     assertEqual(res.full_status, '401 Unauthorized')
     assert 'This server could not verify that you are authorized' in res
 
     res = TestApp(app).get('/702', status=401)
-    assertEqual(res.header('content-type'), 'text/plain')
+    assertEqual(res.header('content-type'), 'text/plain; charset=utf8')
     # XXX Should this keep the original status code or not?
     assertEqual(res.full_status, '401 Unauthorized')
     assert 'This server could not verify that you are authorized' in res
@@ -122,7 +122,7 @@ def test_intercept():
 def test_fail():
     for app in [basic_app, digest_app, config_app]:
         res = TestApp(app).get('/private', status=401)
-        assertEqual(res.header('content-type'),'text/plain')
+        assertEqual(res.header('content-type'),'text/plain; charset=utf8')
         assertEqual(res.full_status, '401 Unauthorized')
         #raise Exception(res)
         assert 'This server could not verify that you are' in res

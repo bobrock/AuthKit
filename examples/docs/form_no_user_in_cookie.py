@@ -11,6 +11,9 @@ respectively.
 from authkit.authenticate import middleware, sample_app
 from beaker.middleware import SessionMiddleware
 
+def user_data(state):
+    return 'User data string'
+
 app = middleware(
     sample_app,
     setup_method='form,cookie',
@@ -24,6 +27,7 @@ app = middleware(
     form_charset='UTF-8',
     cookie_signoutpath = '/signout',
     cookie_nouserincookie = True,
+    form_userdata = user_data,
 )
 app = SessionMiddleware(app, key='authkit.session', secret="some secret")
 if __name__ == '__main__':

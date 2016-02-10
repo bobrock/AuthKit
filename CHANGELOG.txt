@@ -1,6 +1,16 @@
 Changes
 =======
 
+0.4.4
+
+* Added patch by Phil Kershaw for Attribute exhange in OpenID
+* Added patch by Phil Kershaw for hiding the continue button during
+  OpenID redirection
+* Changed cookie handling so that if nouserincookie is set, the user data as
+  well as the username is stored in the session rather than the cookie
+* Added a user_data function to the form method so you can set arbitrary
+  user data messages via the same mechanism as other options
+
 0.4.3
 
 * Updated authkit.authenticate.form to handle the suggest change in #61
@@ -41,10 +51,10 @@ Changes
 
 * Added ``setup.fakeuser`` option which automatically sets the REMOTE_USER
   so that it appears someone has signed in. Useful with setup.enable = False
-********************************************************************************
-* The ``setup.enable = false`` option now also disables  authorisation         *
-* checks (reported by Rick Flosi)                                              *
-********************************************************************************
+
+* The ``setup.enable = false`` option now also disables  authorisation          
+  checks (reported by Rick Flosi)                                               
+
 * Applied patch from Pawel Niewiadomski to fix #53
 * Changed the import of the openid.sreg module to openid.extensions.sreg
 * Fixed the encoding of the form.py file

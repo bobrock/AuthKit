@@ -60,11 +60,13 @@ import cgi
 import paste.request
 import string
 import sys
+from urlparse import urlparse # PJK 24/02/09 for updating referer session item
 from authkit.authenticate import AuthKitConfigError
 from paste.request import construct_url
 from paste.util.import_string import eval_import
 from openid.consumer import consumer
 from openid.extensions import sreg
+from openid.extensions import ax # PJK 19/08/08 added AX Extensions import
 from openid.cryptutil import randomString
 from authkit.authenticate import get_template, valid_password, \
    get_authenticate_function, strip_base, RequireEnvironKey, \
@@ -190,7 +192,8 @@ class AuthOpenIDHandler:
         charset=None,
         sreg_required=None,
         sreg_optional=None,
-        sreg_policyurl=None
+        sreg_policyurl=None,
+        ax_attr=None
     ):
         self.conn, self.store = make_store(store_type, store_config)
         self.baseurl = baseurl
@@ -208,6 +211,13 @@ class AuthOpenIDHandler:
         self.sreg_required = sreg_required
         self.sreg_optional = sreg_optional
         self.sreg_policyurl = sreg_policyurl
+        
+        if ax_attr is not None:
+            # Make an Attribute Exchange Fetch Request message based on the 
+            # attributes passed in
+            self.ax_request = ax.FetchRequest()
+            for attrInfo in ax_attr:
+                self.ax_request.add(attrInfo)
 
     def __call__(self, environ, start_response):
         # If we are called it is because we want to sign in, so show the 
@@ -253,7 +263,9 @@ class AuthOpenIDHandler:
                 ]
             )
             return response
+    
         oidconsumer = self._get_consumer(environ)
+       # import pdb; pdb.set_trace()
         try:
             request_ = oidconsumer.begin(openid_url)
         except consumer.DiscoveryFailure, exc:
@@ -313,6 +325,11 @@ class AuthOpenIDHandler:
                         policy_url=self.sreg_policyurl)
                     request_.addExtension(sreg_request)
 
+                if hasattr(self, 'ax_request'):
+                    # Add Attribute Exchange Fetch Request if set in
+                    # initialization
+                    request_.addExtension(self.ax_request)
+
                 trust_root = baseurl
                 return_to = baseurl + self.path_process
 
@@ -333,11 +350,34 @@ class AuthOpenIDHandler:
                     form_html = request_.formMarkup(
                         trust_root, return_to,
                         form_tag_attrs={'id':'openid_message'})
+                    # Alter form so that it doesn't appear
+                    #
+                    # P J Kershaw 25/02/09
+#                    content = """\
+#                        <html><head><title>OpenID transaction in progress</title></head>
+#                        <body onload='document.getElementById("%s").submit()'>
+#                        %s
+#                        </body></html>
+#                    """%('openid_message', form_html)
+
                     content = """\
-                        <html><head><title>OpenID transaction in progress</title></head>
-                        <body onload='document.getElementById("%s").submit()'>
-                        %s
-                        </body></html>
+<html>
+    <head>
+        <title>OpenID transaction in progress</title>
+        <script type="text/javascript">
+            function doRedirect()
+            {
+                var elem;
+                elem = document.getElementById("%s")
+                elem.style.visibility="hidden";
+                elem.submit();
+            }
+        </script>
+    </head>
+    <body onload='doRedirect()'>
+        %s
+    </body>
+</html>
                     """%('openid_message', form_html)
                     start_response(
                         "200 OK",
@@ -358,7 +398,15 @@ class AuthOpenIDHandler:
         css_class = 'error'
         message = ''
 
-        params = dict(paste.request.parse_querystring(environ))
+        # P J Kershaw 25/02/09
+#        params = dict(paste.request.parse_querystring(environ))
+        if environ['REQUEST_METHOD'] == "GET":
+            params = dict(paste.request.parse_querystring(environ))
+        else:
+            # Reply from provider switches to POST method if content length
+            # exceeds maximum for inclusion in URL.
+            params = dict(paste.request.parse_formvars(environ))
+
         oidconsumer = self._get_consumer(environ)
         # Fixes #50
         info = oidconsumer.complete(
@@ -381,6 +429,21 @@ class AuthOpenIDHandler:
                 user_data = str(sreg.SRegResponse.fromSuccessResponse(info).getExtensionArgs())
             else:
                 user_data = ""
+            
+            # Check for Attribute Exchange extension
+            #
+            # P J Kershaw
+            axResponse = ax.FetchResponse.fromSuccessResponse(info)
+            if axResponse is not None:
+                if hasattr(self, 'ax_request'):
+                    # Set request details to enable parsing of response with
+                    # attribute aliases
+                    axResponse.request = self.ax_request
+                    
+                axData = axResponse.getExtensionArgs()
+                
+                user_data += str({'ax':axData})
+
             # Set the cookie
             if self.urltouser:
                 username = self.urltouser(environ, info.identity_url)
@@ -472,7 +535,8 @@ class OpenIDUserSetter(AuthKitUserSetter):
             sreg_required=options['sreg_required'],
             sreg_optional=options['sreg_optional'],
             sreg_policyurl=options['sreg_policyurl'],
-            session_middleware=options['session_middleware']
+            session_middleware=options['session_middleware'],
+            ax_attr=options['ax_attr']
         )
         self.app = app
 
@@ -513,6 +577,10 @@ def load_openid_config(
         'sreg_policyurl': auth_conf.get('sreg.policyurl'),
         'session_middleware': auth_conf.get('session.middleware','beaker.session'),
     }
+    
+    # Add an Attribute Exchange configuration items
+    user_setter_params.update(_load_ax_config(auth_conf))
+
     auth_handler_params={
         'template':user_setter_params['template'],
         'path_verify':auth_conf.get('path.verify', '/verify'),
@@ -530,7 +598,36 @@ def load_openid_config(
     #     format='basic'
     # )
     return app, auth_handler_params, user_setter_params
+
+
+# AX Support
+# 
+# P J Kershaw
+def _load_ax_config(auth_conf):
+    '''Read configuration for attribute exchange'''
+    ax_params = {'ax_attr': []}
     
+    # Type URI field determines which attributes to include.  Other attribute
+    # properties such alias, count and required may be set to defaults
+    ax_attr_list = [k.replace('ax.typeuri.', '') for k in auth_conf.iterkeys()
+                    if k.startswith('ax.typeuri.')]
+    for i in ax_attr_list:
+        typeURI = auth_conf['ax.typeuri.%s' % i]
+        sCount = auth_conf.get('ax.count.%s' % i, '1')
+        if sCount == ax.UNLIMITED_VALUES:
+            count = sCount
+        else:
+            count = int(sCount)
+            
+        required = str(auth_conf.get('ax.required.%s' % i,'false')).lower()=='true'
+        alias = auth_conf.get('ax.alias.%s' % i)
+            
+        attrInfo = ax.AttrInfo(typeURI, count=count, required=required, 
+                               alias=alias)
+        ax_params['ax_attr'] += [attrInfo]
+      
+    return ax_params
+   
 def make_passurl_handler(
     app,
     auth_conf, 

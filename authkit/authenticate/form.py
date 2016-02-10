@@ -29,6 +29,9 @@ import logging
 import urllib
 log = logging.getLogger('authkit.authenticate.form')
 
+def user_data(state):
+    return 'User data string'
+
 def template(method=False):
     t = """\
 <html>
@@ -51,6 +54,17 @@ def template(method=False):
         t = t.replace('post', method)
     return t
 
+class AttributeDict(dict):
+    def __getattr__(self, name):
+        if not self.has_key(name):
+            raise AttributeError('No such attribute %r'%name)
+        return self.__getitem__(name)
+
+    def __setattr__(self, name, value):
+        raise NotImplementedError(
+            'You cannot set attributes of this object directly'
+        )
+
 class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
     def __init__(
         self, 
@@ -59,6 +73,7 @@ class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
         status="200 OK",
         method='post',
         action=None,
+        user_data=None,
         **p
     ):
         AuthFormHandler.__init__(self, app, **p)
@@ -69,9 +84,18 @@ class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
             self.content_type = self.content_type + '; charset='+charset
         self.method = method
         self.action = action
+        self.user_data = user_data
     
     def on_authorized(self, environ, start_response):
-        environ['paste.auth_tkt.set_user'](userid=environ['REMOTE_USER'])
+        if self.user_data is not None:
+            state = environ.get('wsgiorg.state')
+            if not state:
+                environ['wsgiorg.state'] = state = AttributeDict()
+                state['environ'] = environ
+                state['start_response'] = start_response
+            environ['paste.auth_tkt.set_user'](userid=environ['REMOTE_USER'], user_data=self.user_data(state))
+        else:
+            environ['paste.auth_tkt.set_user'](userid=environ['REMOTE_USER'])
         return self.application(environ, start_response)
         
     def __call__(self, environ, start_response):
@@ -225,6 +249,7 @@ def load_form_config(
     charset = auth_conf.get('charset')
     method = auth_conf.get('method', 'post')
     action = auth_conf.get('action')
+    user_data = auth_conf.get('userdata')
     if method.lower() not in ['get','post']:
         raise Exception('Form method should be GET or POST, not %s'%method)
     return app, {
@@ -233,6 +258,7 @@ def load_form_config(
         'charset': charset, 
         'method': method,
         'action': action,
+        'user_data': user_data or None,
     }, None
 
 def make_form_handler(
@@ -258,6 +284,7 @@ def make_form_handler(
         charset=auth_handler_params['charset'],
         method=auth_handler_params['method'],
         action=auth_handler_params['action'],
+        user_data=auth_handler_params['user_data'],
     )
     app.add_checker('form', status_checker)
     return app

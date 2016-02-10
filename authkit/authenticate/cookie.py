@@ -219,7 +219,8 @@ class AuthKitTicket(AuthTicket):
             
         if self.tokens:
             v += self.tokens + '!'
-        v += self.user_data
+        if not self.nouserincookie:
+            v += self.user_data
         return v
 
     def cookie(self):
@@ -261,10 +262,14 @@ def parse_ticket(secret, ticket, ip, session):
     except ValueError, e:
         raise BadTicket('Timestamp is not a hex integer: %s' % e)
 
+    user_data = None
     if session is not None:
         if not session.has_key('authkit.cookie.user'):
             raise BadTicket('No authkit.cookie.user key exists in the session')
+        if not session.has_key('authkit.cookie.user_data'):
+            raise BadTicket('No authkit.cookie.user_data key exists in the session')
         userid = session['authkit.cookie.user']
+        user_data = session['authkit.cookie.user_data']
         data = ticket[40:]
     else:
         try:
@@ -272,11 +277,14 @@ def parse_ticket(secret, ticket, ip, session):
         except ValueError:
             raise BadTicket('userid is not followed by !')
     if '!' in data:
-        tokens, user_data = data.split('!', 1)
+        tokens, new_user_data = data.split('!', 1)
+        if user_data is None:
+            user_data = new_user_data
     else:
         # @@: Is this the right order?
         tokens = ''
-        user_data = data
+        if user_data is None:
+            user_data = data
     
     expected = calculate_digest(ip, timestamp, secret, userid, tokens, 
                                 user_data)
@@ -422,6 +430,8 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                     if self.nouserincookie:
                         environ[self.session_middleware]['authkit.cookie.user'] = None
                         del environ[self.session_middleware]['authkit.cookie.user']
+                        environ[self.session_middleware]['authkit.cookie.user_data'] = None
+                        del environ[self.session_middleware]['authkit.cookie.user_data']
                         environ[self.session_middleware].save()
                     # Now show the bad cookie screen:
                     headers = self.logout_user_cookie(environ) 
@@ -507,6 +517,7 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                     )
                 )
             environ[self.session_middleware]['authkit.cookie.user'] = userid
+            environ[self.session_middleware]['authkit.cookie.user_data'] = user_data
             environ[self.session_middleware].save()
         return cookies
         
@@ -514,6 +525,8 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
         if self.nouserincookie:
             environ[self.session_middleware]['authkit.cookie.user'] = None
             del environ[self.session_middleware]['authkit.cookie.user']
+            environ[self.session_middleware]['authkit.cookie.user_data'] = None
+            del environ[self.session_middleware]['authkit.cookie.user_data']
             environ[self.session_middleware].save()
         domain = self.cookie_params.get('domain')
         path = self.cookie_params.get('path', '/')

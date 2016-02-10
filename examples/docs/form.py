@@ -2,6 +2,9 @@
 
 from authkit.authenticate import middleware, sample_app
 
+def user_data(state):
+    return 'User data string'
+
 app = middleware(
     sample_app,
     setup_method='form,cookie',
@@ -16,6 +19,7 @@ app = middleware(
     # For overriding proxied defaults:
     # form_action = 'http://localhost/forms/private',
     cookie_signoutpath = '/signout',
+    form_userdata = user_data,
 )
 
 if __name__ == '__main__':

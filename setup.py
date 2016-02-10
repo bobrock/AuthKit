@@ -21,7 +21,7 @@ long_description = (
     '========\n'
 )
 
-version = '0.4.3'
+version = '0.4.4'
 
 setup(
     name="AuthKit",
@@ -37,9 +37,9 @@ setup(
     zip_safe=False,
     test_suite = 'nose.collector',
     install_requires = [
-        "Paste>=1.4", "nose>=0.9.2", "PasteDeploy>=1.1", 
+        "Paste>=1.4", "nose>=0.9.2", "PasteDeploy>=1.1", "Beaker>=1.1",
         "PasteScript>=1.1", "python-openid>=2.1.1", 
-        "elementtree>=1.2,<=1.3", "Beaker>=0.7.3", "decorator>=2.1.0",
+        "elementtree>=1.2,<=1.3", "decorator>=2.1.0",
         "WebOb>=0.9.3",
     ],
     extras_require = {
