@@ -14,7 +14,9 @@ you are using but only the 0.4.4 driver is actively tested and maintained.
 
 import sqlalchemy
 
-if sqlalchemy.__version__ >= '0.4.0':
+if sqlalchemy.__version__ >= '0.5':
+    from sqlalchemy_05 import *
+elif sqlalchemy.__version__ >= '0.4.0':
     # FIXME: specifically which version greater than 0.4.0 requires this?
     from sqlalchemy_044 import *
 elif sqlalchemy.__version__ > '0.3':

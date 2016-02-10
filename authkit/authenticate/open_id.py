@@ -360,7 +360,11 @@ class AuthOpenIDHandler:
 
         params = dict(paste.request.parse_querystring(environ))
         oidconsumer = self._get_consumer(environ)
-        info = oidconsumer.complete(dict(params), params['openid.return_to'])
+        # Fixes #50
+        info = oidconsumer.complete(
+            dict(params), 
+            params.get('openid.return_to')
+        )
 
         if info.status == consumer.FAILURE and info.identity_url:
             fmt = "Verification of %s failed."

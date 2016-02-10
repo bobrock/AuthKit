@@ -72,6 +72,50 @@ Here is an example:
     so is any user data you specify so you should be aware of these facts and
     design your application accordingly. In particular you should definietly
     not store passwords as user data.
+
+
+Bad Cookie Support
+==================
+
+If a cookie has expired or because there is an error parsing the ticket, it 
+is known as a bad cookie. By default, a simple HTML page is displayed with
+the title "Bad Cookie" and a brief message. The headers sent with this page 
+remove the cookie.
+
+You may want to disable this functionality and let your application handle
+the error condition. You can do so with this option::
+
+    authkit.cookie.badcookie.page = false
+
+When a bad cookie is found the variable ``authkit.cookie.error`` is set in
+the environment with a value ``True``. If the error was due to cookie
+expiration the value ``authkit.cookie.timeout`` is also set to ``True``. It
+is then up to your application to set an appropriate cookie or restrict 
+access to resources. AuthKit will also remove any ``REMOTE_USER`` present. 
+
+Rather than handling the bad cookie in your application you may just want 
+to change the template used by AuthKit. You do so like this::
+
+    authkit.cookie.badcookie.page = false
+    authkit.cookie.badcookie.template.string = <html>Bad Cookie</html>
+
+You can use any of the template options you use to customise a form so
+you can also specify a function to render the template::
+
+    authkit.cookie.badcookie.page = false
+    authkit.cookie.badcookie.template.obj = mymodule.auth:render_badcookie
+
+The render function can also take optional ``environ`` and ``state`` 
+arguments which are passed in by AuthKit if the function takes them as named
+arguments.
+
+One thing to be aware of when using this functionality is that because the
+render function gets called as the request is first passed along the middleware
+chain, many of the tools your application relies on are not yet set up so 
+you may not be able to use all the tools you usually do. This is unlike
+thr forms situation where the form render function is called on the response
+after all your usual application infrastructure is in place.
+
 """
 
 #
@@ -82,10 +126,25 @@ from paste.deploy.converters import asbool
 from paste.auth.auth_tkt import *
 import md5
 import os
+import inspect
+import types
 import time
 import logging
 from paste.deploy.converters import asbool
-from authkit.authenticate import strip_base, swap_underscore, AuthKitConfigError, AuthKitUserSetter
+from authkit.authenticate import strip_base, swap_underscore
+from authkit.authenticate import AuthKitConfigError
+from authkit.authenticate import get_template, AuthKitUserSetter
+
+
+def template():
+    t = '''\
+<html><head><title></title></head>
+<body><h1>Bad Cookie</h1>
+<p>You have been signed out. If this problem persists 
+please clear your browser's cookies.</p>
+</body></html>
+'''
+    return t
 
 #
 # Setting up logging
@@ -277,7 +336,9 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
         enforce=False, 
         ticket_class=AuthKitTicket, 
         nouserincookie=False,
-        session_middleware='beaker.session'
+        session_middleware='beaker.session',
+        badcookiepage=True,
+        badcookietemplate=None
     ):
         log.debug("Setting up the cookie middleware")
         secure = False
@@ -299,6 +360,12 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
 
         self.nouserincookie = nouserincookie
         self.session_middleware = session_middleware
+        self.badcookiepage=badcookiepage
+        if self.badcookiepage and not badcookietemplate:
+            raise AuthKitConfigError(
+                "No badcookiepage.template option was specified for the cookie middleware"
+            )
+        self.badcookietemplate = badcookietemplate
 
     def __call__(self, environ, start_response):
         session = None
@@ -324,27 +391,6 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                 # mod_auth_tkt uses this dummy value when IP is not
                 # checked:
                 remote_addr = '0.0.0.0'
-            # @@: This should handle bad signatures better:
-            # Also, timeouts should cause cookie refresh
-            
-            #
-            # Start changes from the default
-            #
-            def bad_ticket_app(environ, start_response, msg=None):
-                # Remove the session username
-                if self.nouserincookie:
-                    environ[self.session_middleware]['authkit.cookie.user'] = None
-                    del environ[self.session_middleware]['authkit.cookie.user']
-                    environ[self.session_middleware].save()
-
-                headers = self.logout_user_cookie(environ)
-                headers.append(('Content-type','text/plain'))
-                start_response('200 OK', headers)
-                if not msg:
-                    msg = 'Bad cookie, you have been signed out.\n If this'
-                    msg += 'problem persists please clear your browser\'s '
-                    msg += 'cookies.'
-                return [msg]
             try:
                 log.debug("Parsing ticket secret %r, cookie value %r, "
                           "remote address %s", self.secret, cookie_value, 
@@ -353,10 +399,10 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                     parse_ticket(self.secret, cookie_value, remote_addr, session)
             except BadTicket, e:
                 if e.expected:
-                    log.debug("BadTicket: %s Expected: %s", e, e.expected)
+                    log.warning("BadTicket: %s Expected: %s", e, e.expected)
                 else:
-                    log.debug("BadTicket: %s", e)
-                return bad_ticket_app(environ, start_response)
+                    log.warning("BadTicket: %s", e)
+                environ['authkit.cookie.error'] = True
             else:
                 now = time.time()
                 log.debug("Cookie enforce: %s", self.cookie_enforce)
@@ -365,18 +411,45 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                           self.cookie_params.get('expires'))
                 if self.cookie_enforce and now - timestamp > \
                    float(self.cookie_params['expires']) + 1:
-                    return bad_ticket_app(environ, start_response, 
-                                          msg="Cookie expired.")
+                   environ['authkit.cookie.error'] = True
+                   environ['authkit.cookie.timeout'] = True
                 else:
                     environ['paste.auth_tkt.timestamp'] = timestamp
             # End changes from the default
-            environ['REMOTE_USER'] = userid
-            if environ.get('REMOTE_USER_TOKENS'):
-                # We want to add tokens/roles to what's there:
-                tokens = str(environ['REMOTE_USER_TOKENS']) + ',' + str(tokens)
-            environ['REMOTE_USER_TOKENS'] = tokens
-            environ['REMOTE_USER_DATA'] = user_data
-            environ['AUTH_TYPE'] = 'cookie'
+            if environ.get('authkit.cookie.error', False) and self.badcookiepage:
+                def bad_cookie_app(environ, start_response):
+                    # If we are using optional session support remove the user from the session:
+                    if self.nouserincookie:
+                        environ[self.session_middleware]['authkit.cookie.user'] = None
+                        del environ[self.session_middleware]['authkit.cookie.user']
+                        environ[self.session_middleware].save()
+                    # Now show the bad cookie screen:
+                    headers = self.logout_user_cookie(environ) 
+                    headers.append(('Content-type','text/html')) 
+                    start_response('200 OK', headers) 
+                    # Inspect the function to see if we can pass it anything useful:
+                    args = {}
+                    kargs = {'environ':environ}
+                    if environ.has_key('gi.state'):
+                        kargs['state'] = environ['gi.state']
+                    for name in inspect.getargspec(self.badcookietemplate)[0]:
+                        if kargs.has_key(name):
+                            args[name] = kargs[name]
+                    response = self.badcookietemplate(**args)
+                    return [response]
+                return bad_cookie_app(environ, start_response)
+            elif not environ.get('authkit.cookie.error', False):
+                environ['REMOTE_USER'] = userid
+                if environ.get('REMOTE_USER_TOKENS'):
+                    # We want to add tokens/roles to what's there:
+                    tokens = environ['REMOTE_USER_TOKENS'] + tokens
+                environ['REMOTE_USER_TOKENS'] = tokens
+                environ['REMOTE_USER_DATA'] = user_data
+                environ['AUTH_TYPE'] = 'cookie'
+            # Remove REMOTE_USER set by any other application.
+            elif environ.has_key('REMOTE_USER'):
+                log.warning('Removing the existing REMOTE_USER key because of a bad cookie')
+                del environ['REMOTE_USER']
         set_cookies = []
         
         def set_user(userid, tokens='', user_data=''):
@@ -387,7 +460,8 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
         
         environ['paste.auth_tkt.set_user'] = set_user
         environ['paste.auth_tkt.logout_user'] = logout_user
-        if self.logout_path and environ.get('PATH_INFO') == self.logout_path:
+        if (self.logout_path and environ.get('PATH_INFO') == self.logout_path) \
+            or environ.get('authkit.cookie.error', False):
             logout_user()
         
         def cookie_setting_start_response(status, headers, exc_info=None):
@@ -458,12 +532,21 @@ def load_cookie_config(
     global_conf=None, 
     prefix='authkit.cookie.'
 ):
+
+    badcookie_conf = strip_base(auth_conf, 'badcookie.')
+    template_conf = strip_base(badcookie_conf, 'template.')
+    if template_conf:
+        template_ = get_template(template_conf, prefix=prefix+'badcookiepage.template.')
+    else:
+        template_ = template
     user_setter_params = {
         'params':  strip_base(auth_conf, 'params.'),
         'ticket_class':AuthKitTicket,
+        'badcookiepage': asbool(badcookie_conf.get('page', True)),
+        'badcookietemplate': template_,
     }
     for k,v in auth_conf.items():
-        if not k.startswith('params.'):
+        if not (k.startswith('params.') or k.startswith('badcookie.')):
             user_setter_params[k] = v
     if not user_setter_params.has_key('secret'):
         raise AuthKitConfigError(

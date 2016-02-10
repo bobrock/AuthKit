@@ -1,11 +1,8 @@
-# SQLAlchemy 0.4.4 Driver for AuthKit
-# Based on update by Daniel Pronych
-# Description: Custom SQLAlchemy 0.4.4 driver to work with AuthKit 0.4.0.
+# SQLAlchemy 0.5 Driver for AuthKit
+# Based on the SQLAlchemy 0.4.4 driver but using session.add() instead of 
+# session.save()
 
-# This file assumes the following in the model used in Pylons 0.9.7 and the examples/user/database-model example
-# * Removed all use of assign_ctx.mapper due to deprecation in 0.4.
-# * Added insert for sqlalchemy.orm due to changes for SQLAlchemy 0.4.
-# * Replaced usage of mapper with ctx.mapper for SQLAlchemy 0.4.4 ( > 0.4.0)
+# This file assumes the following in the model used in Pylons 0.9.7
 
 from sqlalchemy import *
 from paste.util.import_string import eval_import
@@ -147,7 +144,7 @@ class UsersFromDatabase(Users):
                 group_uid=self.meta.Session.query(self.model.Group).\
                     filter_by(name=group.lower()).first().uid
             )
-        self.meta.Session.save(new_user)
+        self.meta.Session.add(new_user)
         self.meta.Session.flush()
 
     def role_create(self, role):
@@ -159,7 +156,7 @@ class UsersFromDatabase(Users):
         if self.role_exists(role):
             raise AuthKitError("Role %r already exists"%role)
         new_role = self.model.Role(role.lower())
-        self.meta.Session.save(new_role)
+        self.meta.Session.add(new_role)
         self.meta.Session.flush()
         
     def group_create(self, group):
@@ -171,7 +168,7 @@ class UsersFromDatabase(Users):
         if self.group_exists(group):
             raise AuthKitError("Group %r already exists"%group)
         new_group = self.model.Group(group.lower())
-        self.meta.Session.save(new_group)
+        self.meta.Session.add(new_group)
         self.meta.Session.flush()
 
     # Delete Methods
@@ -396,7 +393,7 @@ class UsersFromDatabase(Users):
             username=username.lower()).first()
         user.username = new_username.lower()
         self.meta.Session.flush()
-
+        
     def user_set_password(self, username, new_password):
         """
         Sets the user's password. Should be plain text, will be encrypted using self.encrypt
@@ -408,7 +405,7 @@ class UsersFromDatabase(Users):
             username=username.lower()).first()
         user.password = self.encrypt(new_password)
         self.meta.Session.flush()
- 
+
     def user_set_group(self, username, group, auto_add_group=False):
         """
         Sets the user's group to the lowercase of ``group`` or ``None``. If

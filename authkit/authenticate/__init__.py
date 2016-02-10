@@ -194,6 +194,11 @@ def get_authenticate_function(app, authenticate_conf, format, prefix):
             raise AuthKitConfigError('No authenticate function or users specified')
         else:
             if user_conf.has_key('encrypt'):
+                if format == 'digest':
+                    raise AuthKitConfigError('Encryption cannot be used with '
+                        'digest authentication because the server needs to '
+                        'know the password to generate the digest, try basic '
+                        'or form and cookie authentication instead')
                 enc_func = eval_import(user_conf['encrypt'])
                 secret = user_conf.get('encrypt.secret','')
                 def encrypt(password):

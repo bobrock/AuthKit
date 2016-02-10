@@ -79,20 +79,34 @@ class MultiHandler(multi.MultiHandler):
                         binding
                     )
                     environ['authkit.multi'] = True
+                    environ['pylons.error_call'] = 'authkit'
+                    environ['pylons.status_code_redirect'] = 'authkit'
                     return binding(environ, logging_start_response)
             return None
         
         app_iter = app(environ, start_response)
-        if not result_:
-            raise Exception('Invalid WSGI response, did the application return an iterable?')
-        if result_[-1] is None:
-            # The check failed and the initial app should be used.
-            return app_iter
-        else:
-            # Close the unused app which we don't want
-            if hasattr(app_iter, 'close'):
-                app_iter.close()
-            return result_[-1]
+        if result_ and result_[-1]:
+            app_iter = result_[-1]
+        # if not result_:
+        #     raise Exception('Invalid WSGI response (%r), did the application return an iterable?'%result_)
+        # if result_[-1] is None:
+        #     # The check failed and the initial app should be used.
+        #     return app_iter
+        # else:
+        #     # Close the unused app which we don't want
+        #     if hasattr(app_iter, 'close'):
+        #         app_iter.close()
+        #     return result_[-1]
+   
+        # Actually this could cause problems too.
+        # for data in app_iter:
+        #     yield data
+        # if hasattr(app_iter, 'close'):
+        #     app_iter.close()
+
+        # Instead, just return the result
+        return app_iter
+        #return result_[-1]
 
 def status_checker(environ, status, headers):
     """

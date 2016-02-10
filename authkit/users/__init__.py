@@ -60,6 +60,9 @@ will be available in your code as ``environ[authkit.users]``.
 import os.path
 import md5 as _md5
 from authkit.authenticate import AuthKitConfigError
+import logging
+
+log = logging.getLogger('authkit.users')
 
 #
 # Encryption Functions
@@ -68,7 +71,8 @@ from authkit.authenticate import AuthKitConfigError
 def md5(password, secret=''):
     result = _md5.md5(password)
     result.update(secret)
-    return result.hexdigest()
+    result = result.hexdigest()
+    return result
 
 #
 # Exceptions

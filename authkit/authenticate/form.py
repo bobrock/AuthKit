@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """Form and cookie based authentication middleware
 
 As with all the other AuthKit middleware, this middleware is described in
@@ -8,15 +9,12 @@ detail in the AuthKit manual and should be used via the
 The option form.status can be set to "200 OK" if the Pylons error document
 middleware is intercepting the 401 response and just showing the standard 401
 error document. This will not happen in recent versions of Pylons (0.9.6)
-because this middleware sets the environ['pylons.error_call'] key so that the
-error documents middleware doesn't intercept the response.
+because the multi middleware sets the environ['pylons.error_call'] key so that
+the error documents middleware doesn't intercept the response.
 
 From AuthKit 0.4.1 using 200 OK when the form is shown is now the default. 
 This is so that Safari 3 Beta displays the page rather than trying to 
 handle the response itself as a basic or digest authentication.
-
-The username and password are username2, password2 and الإعلاني, password1
-respectively.
 """
 
 from paste.auth.form import AuthFormHandler
@@ -26,6 +24,7 @@ from authkit.authenticate import get_template, valid_password, \
    AuthKitAuthHandler
 from authkit.authenticate.multi import MultiHandler, status_checker
 
+import inspect
 import logging
 import urllib
 log = logging.getLogger('authkit.authenticate.form')
@@ -59,6 +58,7 @@ class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
         charset=None,
         status="200 OK",
         method='post',
+        action=None,
         **p
     ):
         AuthFormHandler.__init__(self, app, **p)
@@ -68,6 +68,7 @@ class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
         if self.charset is not None:
             self.content_type = self.content_type + '; charset='+charset
         self.method = method
+        self.action = action
     
     def on_authorized(self, environ, start_response):
         environ['paste.auth_tkt.set_user'](userid=environ['REMOTE_USER'])
@@ -94,23 +95,31 @@ class FormAuthHandler(AuthKitAuthHandler, AuthFormHandler):
                 log.debug("Username and password authentication failed")
         else:
             log.debug("Either username or password missing")
-        action =  construct_url(environ)
+        action = self.action or construct_url(environ)
         log.debug("Form action is: %s", action)
-        if self.method == 'post':
-            content = self.template() % action
-        else:
-            content = self.template(method=self.method) % (action)
+
+        # Inspect the function to see if we can pass it anything useful:
+        args = {}
+        kargs = {'environ':environ}
+        if environ.has_key('gi.state'):
+            kargs['state'] = environ['gi.state']
+        for name in inspect.getargspec(self.template)[0]:
+            if kargs.has_key(name):
+                args[name] = kargs[name]
+        if self.method != 'post':
+            args['method'] = self.method
+        content = self.template(**args) % (action)
         if self.charset is not None:
             content = content.encode(self.charset)
             
-        # @@@ Tell Pylons error documents middleware not to intercept the 
-        # response
-        environ['pylons.error_call'] = 'authkit'
         writable = start_response(
             self.status,
             [
                 ('Content-Type', self.content_type),
-                ('Content-Length', str(len(content)))
+                ('Content-Length', str(len(content))),
+                # Added for IE compatibility - see #54
+                ('Pragma', 'no-cache'),
+                ('Cache-Control', 'no-cache'),
             ]
         )
         return [content]
@@ -129,30 +138,44 @@ def construct_url(environ, with_query_string=True, with_path_info=True,
     if ':' in host:
         host, port = host.split(':', 1)
     else:
-        host = environ.get('HTTP_X_FORWARDED_HOST', environ.get('HTTP_HOST'))
-        port = environ.get('HTTP_X_FORWARDED_PORT', environ.get('SERVER_PORT'))
-
-        # This is not a good way of determining the request scheme because
-        # the request could be proxied from an HTTPS server to an HTTP server
-        # if environ['wsgi.url_scheme'] == 'https':
-        #     if port == '443':
-        #         port = None
-        # elif environ['wsgi.url_scheme'] == 'http':
-        #     if port == '80':
-        #         port = None
+        # See if the request is proxied
+        host = environ.get('HTTP_X_FORWARDED_HOST', environ.get('HTTP_X_FORWARDED_FOR'))
+        if host is not None:
+            # Request was proxied, get the correct data
+            host = environ.get('HTTP_X_FORWARDED_HOST')
+            port = environ.get('HTTP_X_FORWARDED_PORT')
+            if port is None and environ.get('HTTP_X_FORWARDED_SSL') == 'on':
+                port = '443'
+            if not port:
+                log.warning(
+                    'No HTTP_X_FORWARDED_PORT or HTTP_X_FORWARDED_SSL found '
+                    'in environment, cannot '
+                    'determine the correct port for the form action. '
+                ) 
+            if not host:
+                log.warning(
+                    'No HTTP_X_FORWARDED_HOST found in environment, cannot '
+                    'determine the correct hostname for the form action. ' 
+                    'Using the value of HTTP_HOST instead.'
+                )   
+                host = environ.get('HTTP_HOST')
+        else:
+            # Request was not proxied
+            if environ['wsgi.url_scheme'] == 'https':
+                port = 443
+            if host is None:
+                host = environ.get('HTTP_HOST')
+            if port is None:
+                port = environ.get('SERVER_PORT')
     url += host
     if port:
-        if port == '443':
+        if str(port) == '443':
             url = 'https'+url
-        elif port == '80':
+        elif str(port) == '80':
             url = 'http'+url
         else:
-            if environ['wsgi.url_scheme'] == 'https':
-                url = 'https'+url+':%s' % port
-            else:
-                # Assume we are running HTTP on a non-standard port
-                url = 'http'+url+':%s' % port
-                
+            # Assume we are running HTTP on a non-standard port
+            url = 'http'+url+':%s' % port
     else:
         url = 'http'+url
     if script_name is None:
@@ -199,11 +222,18 @@ def load_form_config(
         prefix=prefix+'authenticate.', 
         format='basic'
     )
-    charset=auth_conf.get('charset')
-    method =auth_conf.get('method', 'post')
+    charset = auth_conf.get('charset')
+    method = auth_conf.get('method', 'post')
+    action = auth_conf.get('action')
     if method.lower() not in ['get','post']:
         raise Exception('Form method should be GET or POST, not %s'%method)
-    return app, {'authfunc':authfunc, 'template':template_, 'charset':charset, 'method':method}, None
+    return app, {
+        'authfunc': authfunc, 
+        'template': template_, 
+        'charset': charset, 
+        'method': method,
+        'action': action,
+    }, None
 
 def make_form_handler(
     app, 
@@ -227,6 +257,7 @@ def make_form_handler(
         template=auth_handler_params['template'], 
         charset=auth_handler_params['charset'],
         method=auth_handler_params['method'],
+        action=auth_handler_params['action'],
     )
     app.add_checker('form', status_checker)
     return app

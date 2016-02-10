@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: AuthKit
-Version: 0.4.2
+Version: 0.4.3
 Summary: An authentication and authorization toolkit for WSGI applications and frameworks
 Home-page: http://authkit.org/
 Author: James Gardner
@@ -49,6 +49,34 @@ Description:
         
         Changes
         =======
+        
+        0.4.3
+        
+        * Updated authkit.authenticate.form to handle the suggest change in #61
+        * Added powerpack adaptors
+        * Changed the multi middleware to return the WSGI response rather than
+        iterating over it and yielding results.
+        * Fixed #50 OpenID problem and tested on blogger.com
+        * Added the ability to pass the environ dictionary to render() functions
+        * Added bad cookie customisation options to fix #65 but also to allow
+        bad cookie template customisation. See the docstring of the
+        authkit.authenticate.cookie module.
+        * Added a new algorithm based on ideas from #61 to guess the correct action
+        for the form produced by the form middleware but also added support for
+        an authkit.form.action option which allows you to manually override
+        AuthKit's guess. (The OpenID middleware calls this baseurl)
+        * Added user_set_password() methods to users API. Fixes #64.
+        * Removed arabic letters from the form handler. Fixes #40.
+        * Added headers to the form handling for IE. Fixes #54.
+        * Adding SQLAlchemy 0.5 support, uses session.add() instead of session.save()
+        * The multi handler now handles WSGI applications implemented as iterators,
+        it already supported generators. The multi2.py example demonstrates this.
+        * Set the pylons.status_code_redirect environment variable on all redirected
+        AuthKit responses
+        * Set the pylons.error_call environment variable on all redirected AuthKit
+        responses
+        * Trigger an error when trying to use server-side password encryption with
+        digest authentication
         
         0.4.2
         

@@ -411,7 +411,19 @@ class UsersFromDatabase(Users):
         user.username = new_username.lower()
         if self.autoflush:
             self.session.flush()
-        
+ 
+    def user_set_password(self, username, new_password):
+        """
+        Sets the user's password. Should be plain text, will be encrypted using self.encrypt
+        Raises an exception if the user doesn't exist.
+        """
+        if not self.user_exists(username.lower()):
+            raise AuthKitNoSuchUserError("No such user %r"%username.lower())
+        user = self.session.query(self.model.User).filter_by(username=username.lower()).one()
+        user.password = self.encrypt(new_password)
+        if self.autoflush:
+            self.session.flush()
+       
     def user_set_group(self, username, group, auto_add_group=False):
         """
         Sets the user's group to the lowercase of ``group`` or ``None``. If

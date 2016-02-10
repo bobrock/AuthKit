@@ -13,6 +13,8 @@ app = middleware(
     form_authenticate_user_encrypt = 'authkit.users:md5',
     form_authenticate_user_encrypt_secret = 'some secret string',
     form_charset='UTF-8',
+    # For overriding proxied defaults:
+    # form_action = 'http://localhost/forms/private',
     cookie_signoutpath = '/signout',
 )
 

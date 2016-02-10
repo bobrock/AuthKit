@@ -556,7 +556,27 @@ class UsersDriver(Users):
         cursor.close()
         conn.commit()
         self.release_conn(conn)
-        
+ 
+    def user_set_password(self, username, new_password):
+        """
+        Sets the user's password. Should be plain text, will be encrypted using self.encrypt
+        Raises an exception if the user doesn't exist.
+        """
+        if not self.user_exists(username.lower()):
+            raise AuthKitNoSuchUserError("No such user %r"%username.lower())
+
+        conn = self.get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE users SET password=%s WHERE username=%s 
+            """, 
+            (self.encrypt(new_password), username.lower())
+        )
+        cursor.close()
+        conn.commit()
+        self.release_conn(conn)
+       
     def user_set_group(self, username, group, auto_add_group=False):
         """
         Sets the user's group to the lowercase of ``group`` or ``None``. If
