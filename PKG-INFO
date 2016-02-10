@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: AuthKit
-Version: 0.4.4
+Version: 0.4.5
 Summary: An authentication and authorization toolkit for WSGI applications and frameworks
 Home-page: http://authkit.org/
 Author: James Gardner
@@ -51,6 +51,14 @@ Description:
         
         Changes
         =======
+        
+        0.4.5
+        
+        * Bumped SQLAlchemy version to 0.5
+        * Fixed ticket 67 to add Python 2.4 support, patch by Kumar McMillan
+        
+        **NOTE**: The old trac system is no longer used. Any outstanding bugs should be
+        submitted **with patches and tests** to the AuthKit mailing list.
         
         0.4.4
         

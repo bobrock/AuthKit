@@ -45,7 +45,9 @@ from paste.util.import_string import eval_import
 from multi import MultiHandler, status_checker
 from pkg_resources import iter_entry_points, load_entry_point
 from paste.deploy.converters import asbool
-from paste.httpexceptions import HTTPExceptionHandler
+
+import paste.httpexceptions
+import webob.exc
 
 from authkit.authorize import authorize_request
 from authkit.permissions import RemoteUser, no_authkit_users_in_environ, \
@@ -370,6 +372,60 @@ def load_config(options, app_conf, prefix):
             )
         merged[key.replace('_','.')] = value
     return merged
+
+class HTTPExceptionHandler(object):
+    """
+    catches exceptions and turns them into proper HTTP responses
+
+    Attributes:
+
+       ``warning_level``
+           This attribute determines for what exceptions a stack
+           trace is kept for lower level reporting; by default, it
+           only keeps stack trace for 5xx, HTTPServerError exceptions.
+           To keep a stack trace for 4xx, HTTPClientError exceptions,
+           set this to 400.
+
+    This middleware catches any exceptions (which are subclasses of
+    ``HTTPException``) and turns them into proper HTTP responses.
+    Note if the headers have already been sent, the stack trace is
+    always maintained as this indicates a programming error.
+
+    Note that you must raise the exception before returning the
+    app_iter, and you cannot use this with generator apps that don't
+    raise an exception until after their app_iter is iterated over.
+    
+    .. note::
+        
+        This originally came from paste.httpexceptions.HTTPExceptionHandler
+        and is patched with comments below for compatibility with 
+        webob + Python 2.4
+    
+    """
+
+    def __init__(self, application, warning_level=None):
+        assert not warning_level or ( warning_level > 99 and
+                                      warning_level < 600)
+        self.warning_level = warning_level or 500
+        self.application = application
+
+    def __call__(self, environ, start_response):
+                    
+        # Note that catching the webob exception is for Python 2.4 support.
+        # In the brave new world of new-style exceptions (derived from object)
+        # multiple inheritance works like you'd expect: the NotAuthenticatedError 
+        # is caught because it descends from the past and webob exceptions.
+        # In the old world (2.4-), the webob exception needs to be in the catch list
+            
+        environ['paste.httpexceptions'] = self
+        environ.setdefault('paste.expected_exceptions',
+                           []).extend([paste.httpexceptions.HTTPException,
+                                       webob.exc.HTTPException])
+        try:
+            return self.application(environ, start_response)        
+        except (paste.httpexceptions.HTTPException, 
+                webob.exc.HTTPException), exc:        
+            return exc(environ, start_response)
 
 def middleware(app, app_conf=None, global_conf=None, prefix='authkit.', 
                handle_httpexception=True, middleware=None, **options):   

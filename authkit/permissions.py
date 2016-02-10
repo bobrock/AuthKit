@@ -27,6 +27,9 @@ import datetime
 import logging
 log = logging.getLogger('authkit.permissions')
 
+# will be True for Python 2.5+
+newstyle_exceptions = issubclass(Exception, object)
+
 class AuthKitConfigError(Exception): 
     """
     Raised when there is a problem with the
@@ -171,9 +174,17 @@ class RemoteUser(RequestPermission):
 
     def check(self, app, environ, start_response):
         if 'REMOTE_USER' not in environ:
-            raise NotAuthenticatedError('Not Authenticated')
+            exc = NotAuthenticatedError('Not Authenticated')
+            if newstyle_exceptions:
+                raise exc
+            else:
+                raise exc.exception # see webob.exc for more details
         elif self.accept_empty==False and not environ['REMOTE_USER']:
-            raise NotAuthorizedError('Not Authorized')
+            exc = NotAuthorizedError('Not Authorized')
+            if newstyle_exceptions:
+                raise exc
+            else:
+                raise exc.exception # ditto
         return app(environ, start_response)
 
 #

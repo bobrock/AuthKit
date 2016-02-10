@@ -21,7 +21,7 @@ long_description = (
     '========\n'
 )
 
-version = '0.4.4'
+version = '0.4.5'
 
 setup(
     name="AuthKit",
@@ -46,7 +46,7 @@ setup(
         'pylons': ["Pylons>=0.9.5,<=1.0"],
         'full': [
             "Pylons>=0.9.5,<=1.0", 
-            "SQLAlchemy>=0.4.0,<=0.4.99", 
+            "SQLAlchemy>=0.5.0,<=0.5.99", 
             "pudge==0.1.3", 
             "buildutils==dev", 
             "pygments>=0.7", 

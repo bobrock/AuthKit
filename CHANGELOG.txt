@@ -1,6 +1,14 @@
 Changes
 =======
 
+0.4.5
+
+* Bumped SQLAlchemy version to 0.5
+* Fixed ticket 67 to add Python 2.4 support, patch by Kumar McMillan
+
+**NOTE**: The old trac system is no longer used. Any outstanding bugs should be
+submitted **with patches and tests** to the AuthKit mailing list.
+
 0.4.4
 
 * Added patch by Phil Kershaw for Attribute exhange in OpenID
