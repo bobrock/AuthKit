@@ -22,9 +22,10 @@ Get Started
 ===========
 
 * `Download and Installation <http://python.org/pypi/AuthKit/0.4.0>`_
-* `Pylons Book <http://pylonsbook.com>`_ (the two chapters on Authentication and
-  Authorization and Advanced AuthKit form the AuthKit 0.4 documentation)
+* `Pylons Book <http://pylonsbook.com>`_ (the two chapters on *Authentication and
+  Authorization* and *Advanced AuthKit* form the AuthKit 0.4 documentation)
 * `Module Reference <http://authkit.org/docs/0.4/module-index.html>`_
+* `AuthKit Cookbook <http://wiki.pylonshq.com/display/authkitcookbook/Home>`_
 * `Trac <http://authkit.org/trac>`_ - Tickets, Wiki, Subversion
 * `Examples <http://authkit.org/trac/browser/AuthKit/trunk/examples>`_
 

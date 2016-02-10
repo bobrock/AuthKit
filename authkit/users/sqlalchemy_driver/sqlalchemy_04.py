@@ -1,7 +1,21 @@
-from sqlalchemy.ext.assignmapper import assign_mapper
+# SQLAlchemy 0.4.4 Driver for AuthKit
+# Based on a version submitted by Daniel Pronych
+# Last Updated: November 9, 2007
+# Description: Custom SQLAlchemy 0.4.0 driver to work with AuthKit 0.4.0.
+
+import warnings
+warnings.warn(
+    "This module is untested and unmaintained, please upgrade to SQLAlchemy" 
+    "  0.4.4 or above", 
+    DeprecationWarning, 
+    2
+)
+
 from sqlalchemy import *
 from paste.util.import_string import eval_import
 from authkit.users import *
+
+from sqlalchemy.orm import *
 
 class UsersFromDatabase(Users):
     """
@@ -56,7 +70,6 @@ class UsersFromDatabase(Users):
                 self.name = name
             def __repr__(self):
                 return "Role(%(name)s)" % self.__dict__
-                
         # Tables
         groups_table = Table(
             "groups",
@@ -84,17 +97,14 @@ class UsersFromDatabase(Users):
             Column("user_uid",   Integer,        ForeignKey("users.uid")),
             Column("role_uid",   Integer,        ForeignKey("roles.uid")),
         )
-           
-        groups_mapper = assign_mapper(
-            ctx,
+        groups_mapper = mapper(
             Group,
             groups_table,
             properties={
                 "users": relation(User)
             }
         )
-        users_mapper = assign_mapper(
-            ctx,
+        users_mapper = mapper(
             User,
             users_table,
             properties={
@@ -102,8 +112,7 @@ class UsersFromDatabase(Users):
                 "group": relation(Group),
             }
         )
-        roles_mapper = assign_mapper(
-            ctx,
+        roles_mapper = mapper(
             Role,
             roles_table,
             properties={
@@ -115,7 +124,7 @@ class UsersFromDatabase(Users):
         model.Group = Group
         model.Role = Role
         return model
-       
+    
     # Create Methods
     def user_create(self, username, password, group=None):
         """
@@ -140,8 +149,9 @@ class UsersFromDatabase(Users):
                 password=self.encrypt(password), 
                 group_uid=self.model.Group.get_by(name=group.lower()).uid
             )
-        new_user.flush()
-
+        self.model.Session.save(new_user)
+        self.model.Session.flush()
+    
     def role_create(self, role):
         """
         Add a new role to the system
@@ -151,20 +161,9 @@ class UsersFromDatabase(Users):
         if self.role_exists(role):
             raise AuthKitError("Role %r already exists"%role)
         new_role = self.model.Role(role.lower())
-        new_role.flush()
-        
-        #~ new_role2 = self.model.Role("test")
-        #~ #new_role2.flush()
-        #~ from pysqlite2 import dbapi2 as sqlite
-        #~ conn = sqlite.connect("mydb.db")
-        #~ cur = conn.cursor()
-        #~ cur.execute("SELECT * FROM roles;")
-        #~ raise Exception(cur.fetchall(), self.model.Role.get(1))
-        #~ raise Exception([repr(obj) for obj in self.model.ctx.current], self.model.ctx.current.identity_map.values())
-        #~ self.model.ctx.current.flush()
-        #~ raise Exception([u.name for u in self.model.Role.select(order_by=self.model.Role.c.name)])
-        #new_role.flush()
-        
+        self.model.Session.save(new_role)
+        self.model.Session.flush()
+    
     def group_create(self, group):
         """
         Add a new group to the system
@@ -174,19 +173,21 @@ class UsersFromDatabase(Users):
         if self.group_exists(group):
             raise AuthKitError("Group %r already exists"%group)
         new_group = self.model.Group(group.lower())
-        new_group.flush()
-
+        self.model.Session.save(new_group)
+        self.model.Session.flush()
+    
     # Delete Methods
+        
     def user_delete(self, username):
         """
         Remove the user with the specified username 
         """
-        user = self.model.User.get_by(username=username.lower())
-        if not user:
+        user = self.meta.Session.query(self.model.User).filter_by(username=username.lower()).first()
+        if user is None:
             raise AuthKitNoSuchUserError("There is no such user %r"%username)
         else:
-            user.delete()
-            user.flush()
+            self.meta.Session.delete(user)
+            self.meta.Session.flush()
 
     def role_delete(self, role):
         """
@@ -194,99 +195,81 @@ class UsersFromDatabase(Users):
         To delete the role and remove it from all existing users use 
         ``role_delete_cascade()``
         """
-        role = self.model.Role.get_by(name=role.lower())
-        if not role:
+        role = self.meta.Session.query(self.model.Role).filter_by(name=role.lower()).first()
+        if role is None:
             raise AuthKitNoRoleUserError("There is no such role %r"%role)
         else:
-            role.delete()
-            role.flush()
+            self.meta.Session.delete(role)
+            self.meta.Session.flush()
             
     def group_delete(self, group):
         """
         Remove the group specified. Rasies an exception if the group is still in use. 
         To delete the group and remove it from all existing users use ``group_delete_cascade()``
         """
-        group = self.model.Group.get_by(name=group.lower())
-        if not group:
+        group = self.meta.Session.query(self.model.Group).filter_by(name=group.lower()).first()
+        if group is None:
             raise AuthKitNoGroupUserError("There is no such group %r"%group)
         else:
-            group.delete()
-            group.flush()
-            
-    #~ # Delete Cascade Methods
-    #~ def role_delete_cascade(self, role):
-        #~ """
-        #~ Remove the role specified and remove the role from any users who used it
-        #~ """
-        #~ raise AuthKitNotSupportedError(
-            #~ "The %s implementation of the User Management API doesn't support this method"%(
-                #~ self.__class__.__name__
-            #~ )
-        #~ )
-        
-    #~ def group_delete_cascade(self, group):
-        #~ """
-        #~ Remove the group specified and remove the group from any users who used it
-        #~ """
-        #~ raise AuthKitNotSupportedError(
-            #~ "The %s implementation of the User Management API doesn't support this method"%(
-                #~ self.__class__.__name__
-            #~ )
-        #~ )
-        
+            self.meta.Session.delete(group)
+            self.meta.Session.flush()
+
     # Existence Methods
     def user_exists(self, username):
         """
         Returns ``True`` if a user exists with the given username, ``False`` 
         otherwise. Usernames are case insensitive.
         """
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).first()
         if user:
             return True
         return False
-        
+    
     def role_exists(self, role):
         """
         Returns ``True`` if the role exists, ``False`` otherwise. Roles are
         case insensitive.
         """
-        role = self.model.Role.get_by(name=role.lower())
+        role = self.model.Session.query(self.model.Role).filter_by(
+            name=role.lower()).first()
         if role:
             return True
         return False
-        
+    
     def group_exists(self, group):
         """
         Returns ``True`` if the group exists, ``False`` otherwise. Groups 
         are case insensitive.
         """
-        group = self.model.Group.get_by(name=group.lower())
+        group = self.model.Session.query(self.model.Group).filter_by(
+            name=group.lower()).first()
         if group:
             return True
         return False
-        
+    
     # List Methods
     def list_roles(self):
         """
         Returns a lowercase list of all roll names ordered alphabetically
         """
-        return [r.name for r in self.model.Role.select( \
-           order_by=self.model.Role.c.name) ]
-        
+        return [r.name for r in self.model.Session.query(
+            self.model.Role).order_by(self.model.Role.name)]
+    
     def list_users(self):
         """
         Returns a lowecase list of all usernames ordered alphabetically
         """
-        return [u.username for u in self.model.User.select( \
-           order_by=self.model.User.c.username)]
-
+        return [r.name for r in self.model.Session.query(
+            self.model.User).order_by(self.model.User.username)]
+    
     def list_groups(self):
         """
         Returns a lowercase list of all groups ordered alphabetically
         """
-        return [g.name for g in self.model.Group.select( \
-           order_by=self.model.Group.c.name)]
-
+        return [r.name for r in self.model.Session.query(
+            self.model.Group).order_by(self.model.Group.name)]
+    
     # User Methods
     def user(self, username):
         """
@@ -306,7 +289,8 @@ class UsersFromDatabase(Users):
         """    
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         roles = [r.name for r in user.roles]
         roles.sort()
         return {
@@ -315,7 +299,7 @@ class UsersFromDatabase(Users):
             'password': user.password,
             'roles':    roles
         }
-
+    
     def user_roles(self, username):
         """
         Returns a list of all the role names for the given username ordered 
@@ -323,11 +307,12 @@ class UsersFromDatabase(Users):
         """
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        roles = [r.name for r in self.model.User.get_by( \
-           username=username.lower()).roles]
+        roles = [r.name for r in \
+            self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one().roles]
         roles.sort()
         return roles
-        
+    
     def user_group(self, username):
         """
         Returns the group associated with the user or ``None`` if no group is
@@ -335,8 +320,9 @@ class UsersFromDatabase(Users):
         """
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        return self.model.User.get_by(username=username.lower()).group.name
-        
+        return self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one().group.name
+    
     def user_password(self, username):
         """
         Returns the password associated with the user or ``None`` if no
@@ -344,8 +330,9 @@ class UsersFromDatabase(Users):
         """
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        return self.model.User.get_by(username=username.lower()).password
-
+        return self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one().password
+    
     def user_has_role(self, username, role):
         """
         Returns ``True`` if the user has the role specified, ``False`` 
@@ -355,11 +342,12 @@ class UsersFromDatabase(Users):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
         if not self.role_exists(role.lower()):
             raise AuthKitNoSuchRoleError("No such role %r"%role.lower())
-        for role_ in self.model.User.get_by(username=username.lower()).roles:
+        for role_ in self.model.Session.query(self.model.User).filter_by(
+                username=username.lower()).one().roles:
             if role_.name == role.lower():
                 return True
         return False
-        
+    
     def user_has_group(self, username, group):
         """
         Returns ``True`` if the user has the group specified, ``False`` 
@@ -371,7 +359,8 @@ class UsersFromDatabase(Users):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
         if group is not None and not self.group_exists(group.lower()):
             raise AuthKitNoSuchGroupError("No such group %r"%group.lower())
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         if user.group is None:
             if group == None:
                 return True
@@ -379,7 +368,7 @@ class UsersFromDatabase(Users):
             if group is not None and user.group.name == group.lower():
                 return True
         return False
-
+    
     def user_has_password(self, username, password):
         """
         Returns ``True`` if the user has the password specified, ``False`` 
@@ -388,11 +377,12 @@ class UsersFromDatabase(Users):
         """
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         if user.password == self.encrypt(password):
             return True
         return False
-        
+    
     def user_set_username(self, username, new_username):
         """
         Sets the user's username to the lowercase of new_username. 
@@ -405,10 +395,12 @@ class UsersFromDatabase(Users):
             raise AuthKitError(
                 "A user with the username %r already exists"%username.lower()
             )
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         user.username = new_username.lower()
-        user.flush()
-        
+        self.model.Session.save(user)
+        self.model.Session.flush()
+    
     def user_set_group(self, username, group, auto_add_group=False):
         """
         Sets the user's group to the lowercase of ``group`` or ``None``. If
@@ -423,10 +415,13 @@ class UsersFromDatabase(Users):
                 self.group_create(group.lower())
             else:
                 raise AuthKitNoSuchGroupError("No such group %r"%group.lower())
-        user = self.model.User.get_by(username=username.lower())
-        user.group = self.model.Group.get_by(name=group.lower())
-        user.flush()
-        
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
+        user.group = self.model.Session.query(self.model.Group).filter_by(
+            name=group.lower()).one()
+        self.model.Session.save(user)
+        self.model.Session.flush()
+    
     def user_add_role(self, username, role, auto_add_role=False):
         """
         Sets the user's role to the lowercase of ``role``. If the role doesn't
@@ -441,10 +436,13 @@ class UsersFromDatabase(Users):
                 self.role_create(role.lower())
             else:
                 raise AuthKitNoSuchRoleError("No such role %r"%role.lower())
-        user = self.model.User.get_by(username=username.lower())
-        role = self.model.Role.get_by(name=role.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
+        role = self.model.Session.query(self.model.Role).filter_by(
+            name=role.lower()).one()
         user.roles.append(role)
-        user.flush()
+        self.model.Session.save(user)
+        self.model.Session.flush()
     
     def user_remove_group(self, username):
         """
@@ -453,9 +451,11 @@ class UsersFromDatabase(Users):
         """
         if not self.user_exists(username.lower()):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         user.group = None
-        user.flush()
+        self.model.Session.save(user)
+        self.model.Session.flush()
     
     def user_remove_role(self, username, role):
         """
@@ -466,11 +466,13 @@ class UsersFromDatabase(Users):
             raise AuthKitNoSuchUserError("No such user %r"%username.lower())
         if not self.role_exists(role.lower()):
             raise AuthKitNoSuchRoleError("No such role %r"%role.lower())
-        user = self.model.User.get_by(username=username.lower())
+        user = self.model.Session.query(self.model.User).filter_by(
+            username=username.lower()).one()
         for role_ in user.roles:
             if role_.name == role.lower():
                 user.roles.pop(user.roles.index(role_))
-                user.flush()
+                self.model.Session.save(user)
+                self.model.Session.flush()
                 return
         raise AuthKitError(
             "No role %r found for user %r"%(role.lower(), username.lower())

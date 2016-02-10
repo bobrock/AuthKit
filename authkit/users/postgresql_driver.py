@@ -1,3 +1,6 @@
+"""\
+An SQLAlchemy driver for Pylons when used directly with PostgreSQL.
+"""
 import datetime
 from authkit.users import *
 from paste.util.import_string import eval_import
@@ -14,7 +17,9 @@ class UsersDriver(Users):
     """
     Raw SQL Version
     """
-    def __init__(self, data, encrypt=None):
+    api_version = 0.4
+
+    def __init__(self, environ, data, encrypt=None):
         if encrypt is None:
             def encrypt(password):
                 return password
@@ -32,6 +37,7 @@ class UsersDriver(Users):
                     )
                 )
         self.get_conn, self.release_conn = data
+        self.environ = environ
 
     def create_tables(self):
         conn = self.get_conn()
@@ -524,7 +530,7 @@ class UsersDriver(Users):
         rows = cursor.fetchall()
         cursor.close()
         self.release_conn(conn)
-        return rows[0][0] == encrypt(password)
+        return rows[0][0] == self.encrypt(password)
 
     def user_set_username(self, username, new_username):
         """

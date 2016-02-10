@@ -92,21 +92,23 @@ class _Authorize(object):
         self.permission = permission
 
     def __call__(self, environ, start_response):
-        if not environ.has_key('authkit.authenticate'):
-            raise Exception(
-                "Authenticate middleware not present"
-            ) 
-        # Could also check that status and response haven't changed here?
-        try:
-            return self.permission.check(self.app, environ, start_response)
-        except NotAuthenticatedError:
-            if environ.has_key('REMOTE_USER'):
-                raise NonConformingPermissionError(
-                    'Faulty permission: NotAuthenticatedError raised '
-                    'but REMOTE_USER key is present.'
-                )
-            else:
-                raise
+        all_conf = environ.get('authkit.config')
+        if all_conf is None:
+            raise Exception('Authentication middleware not present')
+        if all_conf.get('setup.enable', True) is True:
+            # Could also check that status and response haven't changed here?
+            try:
+                return self.permission.check(self.app, environ, start_response)
+            except NotAuthenticatedError:
+                if environ.has_key('REMOTE_USER'):
+                    raise NonConformingPermissionError(
+                        'Faulty permission: NotAuthenticatedError raised '
+                        'but REMOTE_USER key is present.'
+                    )
+                else:
+                    raise
+        else:
+            return self.app(environ, start_response)
 
 class _PermissionStartResponse(object):
     def __init__(self, status, headers, exc_info=None):
@@ -142,9 +144,15 @@ def authorize(permission):
     """
     def decorate(func):
         def input(self, environ, start_response):
-            def app(environ, start_response):
+            all_conf = environ.get('authkit.config')
+            if all_conf is None:
+                raise Exception('Authentication middleware not present')
+            if all_conf.get('setup.enable', True) is True:
+                def app(environ, start_response):
+                    return func(self, environ, start_response)
+                return permission.check(app, environ, start_response)
+            else:
                 return func(self, environ, start_response)
-            return permission.check(app, environ, start_response)
         return input
     return decorate
 
@@ -163,32 +171,38 @@ def authorize_request(environ, permission):
         this shouldn't be a big problem unless you are defining your own 
         advanced permission checks.
     """
-    error = PermissionSetupError(
-        'The permissions being authorized require access to a response '
-        'and so cannot be used to authorize based on a request alone. '
-        'Try using the authkit.authorize.middleware or the authorize decorator.'
-    )
-    try:
-        def dummy_app(environ, start_response):
-            if not start_response == _PermissionStartResponse:
-                raise _FiddledWith('Fiddled with start_response %r'%start_response)
-            start_response(
-                '1000 Test Response For Permissions Check', 
-                [('Content-type','text/plain')]
-            )
-            return _PermissionList('''Dummy response from permission check.''')
-        
-        if not isinstance(
-            permission.check(
-                dummy_app, 
-                environ, 
-                _PermissionStartResponse
-            ), 
-            _PermissionList
-        ):
-            raise _FiddledWith('Fiddled with response')
-    except _FiddledWith:
-        raise error
+    all_conf = environ.get('authkit.config')
+    if all_conf is None:
+        raise Exception('Authentication middleware not present')
+    if all_conf.get('setup.enable', True) is True:
+        error = PermissionSetupError(
+            'The permissions being authorized require access to a response '
+            'and so cannot be used to authorize based on a request alone. '
+            'Try using the authkit.authorize.middleware or the authorize decorator.'
+        )
+        try:
+            def dummy_app(environ, start_response):
+                if not start_response == _PermissionStartResponse:
+                    raise _FiddledWith('Fiddled with start_response %r'%start_response)
+                start_response(
+                    '1000 Test Response For Permissions Check', 
+                    [('Content-type','text/plain')]
+                )
+                return _PermissionList('''Dummy response from permission check.''')
+            
+            if not isinstance(
+                permission.check(
+                    dummy_app, 
+                    environ, 
+                    _PermissionStartResponse
+                ), 
+                _PermissionList
+            ):
+                raise _FiddledWith('Fiddled with response')
+        except _FiddledWith:
+            raise error
+    else:
+       return 
 
 def authorized(environ, permission):
     try:

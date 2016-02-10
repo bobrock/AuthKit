@@ -111,8 +111,19 @@ class AuthKitTicket(AuthTicket):
     cookie section.
     """
 
-    def __init__(self, secret, userid, ip, tokens=(), user_data='', time=None, 
-                 cookie_name='authkit', cookie_params=None):
+    def __init__(
+        self, 
+        secret, 
+        userid, 
+        ip, 
+        tokens=(), 
+        user_data='', 
+        time=None, 
+        cookie_name='authkit', 
+        cookie_params=None,
+        nouserincookie=False,
+    ):
+        self.nouserincookie = nouserincookie
         secure = False
         if cookie_params is None:
             self.cookie_params = {}
@@ -141,7 +152,11 @@ class AuthKitTicket(AuthTicket):
         return digest_
 
     def cookie_value(self):
-        v = '%s%08x%s!' % (self.digest(), int(self.time), self.userid)
+        if not self.nouserincookie:
+            v = '%s%08x%s!' % (self.digest(), int(self.time), self.userid)
+        else:
+            v = '%s%08x!' % (self.digest(), int(self.time))
+            
         if self.tokens:
             v += self.tokens + '!'
         v += self.user_data
@@ -171,7 +186,7 @@ class AuthKitTicket(AuthTicket):
 # The other methods in the paste file, calculate_digest and encode_ip_timestamp
 # are utility methods which you shouldn't need to use on their own.
 
-def parse_ticket(secret, ticket, ip):
+def parse_ticket(secret, ticket, ip, session):
     """
     Parse the ticket, returning (timestamp, userid, tokens, user_data).
 
@@ -185,10 +200,17 @@ def parse_ticket(secret, ticket, ip):
         timestamp = int(ticket[32:40], 16)
     except ValueError, e:
         raise BadTicket('Timestamp is not a hex integer: %s' % e)
-    try:
-        userid, data = ticket[40:].split('!', 1)
-    except ValueError:
-        raise BadTicket('userid is not followed by !')
+
+    if session is not None:
+        if not session.has_key('authkit.cookie.user'):
+            raise BadTicket('No authkit.cookie.user key exists in the session')
+        userid = session['authkit.cookie.user']
+        data = ticket[40:]
+    else:
+        try:
+            userid, data = ticket[40:].split('!', 1)
+        except ValueError:
+            raise BadTicket('userid is not followed by !')
     if '!' in data:
         tokens, user_data = data.split('!', 1)
     else:
@@ -244,14 +266,22 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
 
     """
 
-    def __init__(self, app, secret, name='authkit', params=None, 
-                 includeip=True, signoutpath=None, enforce=False, 
-                 ticket_class=AuthKitTicket):
+    def __init__(self, 
+        app, 
+        secret, 
+        name='authkit', 
+        params=None,   
+        includeip=True,
+        signoutpath=None, 
+        enforce=False, 
+        ticket_class=AuthKitTicket, 
+        nouserincookie=False,
+        session_middleware='beaker.session'
+    ):
         log.debug("Setting up the cookie middleware")
         secure = False
         if params.has_key('secure') and asbool(params['secure']) == True:
             secure = True
-        
         # secure not needed!
         AuthTKTMiddleware.__init__(self, app, secret, cookie_name=name, 
                                    secure=secure, include_ip=asbool(includeip),
@@ -261,10 +291,18 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
         self.cookie_params = params and params.copy() or {}
         self.cookie_enforce = enforce
         if self.cookie_enforce and not self.cookie_params.has_key('expires'):
-            raise Exception("Cannot enforce cookie expiration since no "
-                            "cookie_params expires' has been set")
+            raise AuthKitConfigError(
+                "Cannot enforce cookie expiration since no "
+                "cookie_params expires' has been set"
+            )
+
+        self.nouserincookie = nouserincookie
+        self.session_middleware = session_middleware
 
     def __call__(self, environ, start_response):
+        session = None
+        if self.nouserincookie:
+            session = environ[self.session_middleware]
         cookies = request.get_cookies(environ)
         log.debug("These cookies were found: %s", cookies.keys())
         if cookies.has_key(self.cookie_name):
@@ -275,6 +313,7 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                   cookie_value)
         remote_addr = environ.get('HTTP_X_FORWARDED_FOR', 
                                   environ.get('REMOTE_ADDR','0.0.0.0'))
+        remote_addr = remote_addr.split(',')[0]
         log.debug("Remote addr %r, value %r, include_ip %r", remote_addr, 
                   cookie_value, self.include_ip)
         if cookie_value:
@@ -291,9 +330,15 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
             # Start changes from the default
             #
             def bad_ticket_app(environ, start_response, msg=None):
+                # Remove the session username
+                if self.nouserincookie:
+                    environ[self.session_middleware]['authkit.cookie.user'] = None
+                    del environ[self.session_middleware]['authkit.cookie.user']
+                    environ[self.session_middleware].save()
+
                 headers = self.logout_user_cookie(environ)
                 headers.append(('Content-type','text/plain'))
-                start_response('401 Not authenticated', headers)
+                start_response('200 OK', headers)
                 if not msg:
                     msg = 'Bad cookie, you have been signed out.\n If this'
                     msg += 'problem persists please clear your browser\'s '
@@ -304,12 +349,12 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                           "remote address %s", self.secret, cookie_value, 
                           remote_addr)
                 timestamp, userid, tokens, user_data = \
-                    parse_ticket(self.secret, cookie_value, remote_addr)
+                    parse_ticket(self.secret, cookie_value, remote_addr, session)
             except BadTicket, e:
                 if e.expected:
-                    log.error("BadTicket: %s Expected: %s", e, e.expected)
+                    log.debug("BadTicket: %s Expected: %s", e, e.expected)
                 else:
-                    log.error("BadTicket: %s", e)
+                    log.debug("BadTicket: %s", e)
                 return bad_ticket_app(environ, start_response)
             else:
                 now = time.time()
@@ -324,8 +369,6 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
                 else:
                     environ['paste.auth_tkt.timestamp'] = timestamp
             # End changes from the default
-            
-            tokens = ','.join(tokens)
             environ['REMOTE_USER'] = userid
             if environ.get('REMOTE_USER_TOKENS'):
                 # We want to add tokens/roles to what's there:
@@ -356,12 +399,11 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
 #
 
     def set_user_cookie(self, environ, userid, tokens, user_data):
-        if not isinstance(tokens, basestring):
-            tokens = ','.join(tokens)
         if self.include_ip:
             # Fixes ticket #30
             # @@@ should this use environ.get('REMOTE_ADDR','0.0.0.0')?
             remote_addr = environ.get('HTTP_X_FORWARDED_FOR', environ['REMOTE_ADDR'])
+            remote_addr = remote_addr.split(',')[0]
         else:
             remote_addr = '0.0.0.0'
         # Only these three lines change
@@ -372,18 +414,34 @@ class CookieUserSetter(AuthKitUserSetter, AuthTKTMiddleware):
         ticket = self.ticket_class(self.secret, userid, remote_addr, 
                                    tokens=tokens, user_data=user_data, 
                                    cookie_name=self.cookie_name, 
-                                   cookie_params=self.cookie_params)
+                                   cookie_params=self.cookie_params, 
+                                   nouserincookie=self.nouserincookie)
         
         # @@: Should we set REMOTE_USER etc in the current
         # environment right now as well?
         parts = str(ticket.cookie()).split(':')
         cookies = [(parts[0].strip(), ':'.join(parts[1:]).strip())]
         log.debug(cookies)
+        if self.nouserincookie:
+            if self.cookie_name == environ[self.session_middleware].key:
+                raise AuthKitConfigError(
+                    "The session cookie name %r is the same as the "
+                    "AuthKit cookie name. Please change the session cookie "
+                    "name."%(
+                        environ[self.session_middleware].key
+                    )
+                )
+            environ[self.session_middleware]['authkit.cookie.user'] = userid
+            environ[self.session_middleware].save()
         return cookies
         
     def logout_user_cookie(self, environ):
+        if self.nouserincookie:
+            environ[self.session_middleware]['authkit.cookie.user'] = None
+            del environ[self.session_middleware]['authkit.cookie.user']
+            environ[self.session_middleware].save()
         domain = self.cookie_params.get('domain')
-        path = '/'
+        path = self.cookie_params.get('path', '/')
         if not domain:
             cookies = [('Set-Cookie', '%s=""; Path=%s' % (self.cookie_name, 
                                                           path))]

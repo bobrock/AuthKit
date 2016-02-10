@@ -17,6 +17,43 @@ Full documentation on the use of this OpenID module is in the AuthKit manual.
 
 This middleware actually sets two cookies, one for AuthKit and one for a session
 store to store the ID which OpenID information is keyed against.
+
+The OpenID sreg variables you can use include:
+
+``nickname``
+    Any UTF-8 string that the End User wants to use as a nickname. 
+
+``email``
+    The email address of the End User as specified in section 3.4.1 of
+    [RFC2822] (Resnick, P., "Internet Message Format," .). 
+
+``fullname``
+    UTF-8 string free text representation of the End User's full name. 
+
+``dob``
+    The End User's date of birth as YYYY-MM-DD. Any values whose representation
+    uses fewer than the specified number of digits should be zero-padded. The
+    length of this value MUST always be 10. If the End User user does not want
+    to reveal any particular component of this value, it MUST be set to zero.
+    For instance, if a End User wants to specify that his date of birth is in
+    1980, but not the month or day, the value returned SHALL be "1980-00-00".
+
+``gender``
+    The End User's gender, "M" for male, "F" for female. 
+
+``postcode``
+    UTF-8 string free text that SHOULD conform to the End User's country's
+    postal system. 
+
+``country``
+    The End User's country of residence as specified by ISO3166. 
+
+``language``
+    End User's preferred language as specified by ISO639. 
+
+``timezone``
+    ASCII string from TimeZone database
+    For example, "Europe/Paris" or "America/Los_Angeles".
 """
 
 import cgi
@@ -25,15 +62,14 @@ import string
 import sys
 from authkit.authenticate import AuthKitConfigError
 from paste.request import construct_url
+from paste.util.import_string import eval_import
 from openid.consumer import consumer
-from openid.oidutil import appendArgs
-from yadis.discover import DiscoveryFailure
-from urljr.fetchers import HTTPFetchingError
+from openid.extensions import sreg
+from openid.cryptutil import randomString
 from authkit.authenticate import get_template, valid_password, \
    get_authenticate_function, strip_base, RequireEnvironKey, \
    AuthKitUserSetter, AuthKitAuthHandler
 from authkit.authenticate.multi import MultiHandler, status_checker
-from beaker.middleware import SessionMiddleware
 
 def template():
     return """\
@@ -115,7 +151,7 @@ def make_store(store, config):
         from DBUtils.PersistentDB import PersistentDB
         from openid.store.sqlstore import MySQLStore
         from sqlalchemy.engine.url import make_url
-        
+
         def create_conn(dburi):
             url = make_url(dburi)
             p={'db':url.database}
@@ -133,7 +169,7 @@ def make_store(store, config):
     else:
         raise Exception("Invalid store type %r"%store)
     return conn, cstore
-    
+
 class AuthOpenIDHandler:
     """
     The template should be setup from authkit.open_id.template.file or 
@@ -147,8 +183,6 @@ class AuthOpenIDHandler:
         baseurl, 
         path_signedin, 
         template=None,
-        session_secret=None,
-        session_key='authkit_openid',
         session_middleware='beaker.session',
         path_verify='/verify', 
         path_process='/process',
@@ -165,8 +199,6 @@ class AuthOpenIDHandler:
         self.path_verify = path_verify
         self.path_process = path_process
         self.session_middleware = session_middleware
-        self.session_key = session_key
-        self.session_secret = session_secret
         self.app = app
         self.urltouser = urltouser
         if charset is None:
@@ -217,32 +249,14 @@ class AuthOpenIDHandler:
                 '200 OK', 
                 [
                     ('Content-type', 'text/html'+self.charset),
-                    ('Content-length', len(response))
+                    ('Content-length', str(len(response)))
                 ]
             )
             return response
         oidconsumer = self._get_consumer(environ)
         try:
             request_ = oidconsumer.begin(openid_url)
-        except HTTPFetchingError, exc:
-            response = render(
-                self.template,
-                message='Error retrieving identity URL: %s' % (
-                    cgi.escape(str(exc.why))
-                ),
-                value=self._quoteattr(openid_url),
-                css_class='error',
-                action=baseurl + self.path_verify
-            )
-            start_response(
-                '200 OK', 
-                [
-                    ('Content-type', 'text/html'+self.charset),
-                    ('Content-length', len(response))
-                ]
-            )
-            return response
-        except DiscoveryFailure, exc:
+        except consumer.DiscoveryFailure, exc:
             response = render(
                 self.template,
                 message='Error retrieving identity URL: %s' % (
@@ -256,7 +270,7 @@ class AuthOpenIDHandler:
                 '200 OK', 
                 [
                     ('Content-type', 'text/html'+self.charset),
-                    ('Content-length', len(response))
+                    ('Content-length', str(len(response)))
                 ]
             )
             return response
@@ -275,29 +289,64 @@ class AuthOpenIDHandler:
                     '200 OK', 
                     [
                         ('Content-type', 'text/html'+self.charset),
-                        ('Content-length', len(response))
+                        ('Content-length', str(len(response)))
                     ]
                 )
                 return response
             else:
+                session = environ[self.session_middleware]
+                if 'HTTP_REFERER' in environ and \
+                        not environ['HTTP_REFERER'].endswith(self.path_verify) and \
+                        not environ['HTTP_REFERER'].endswith(self.path_process):
+                    session['referer'] = environ['HTTP_REFERER']
+
+                if self.sreg_required or self.sreg_optional or self.sreg_policyurl:
+                    required_list = []
+                    if self.sreg_required:
+                        required_list = [opt.strip() for opt in self.sreg_required.split(',')]
+                    optional_list = []
+                    if self.sreg_optional:
+                        optional_list = [opt.strip() for opt in self.sreg_optional.split(',')]
+                    sreg_request = sreg.SRegRequest(
+                        required=required_list,
+                        optional=optional_list,
+                        policy_url=self.sreg_policyurl)
+                    request_.addExtension(sreg_request)
+
                 trust_root = baseurl
                 return_to = baseurl + self.path_process
-                if self.sreg_required:
-                    request_.addExtensionArg('sreg', 'required', self.sreg_required)
-                if self.sreg_optional:
-                    request_.addExtensionArg('sreg', 'optional', self.sreg_optional)
-                if self.sreg_policyurl:
-                    request_.addExtensionArg('sreg', 'policy_url', self.sreg_policyurl)
 
-                redirect_url = request_.redirectURL(trust_root, return_to)
-                start_response(
-                    '301 Redirect', 
-                    [
-                        ('Content-type', 'text/html'+self.charset),
-                        ('Location', redirect_url)
-                    ]
-                )
-                return []
+                if request_.shouldSendRedirect():
+                    redirect_url = request_.redirectURL(
+                        trust_root, return_to)
+
+                    start_response(
+                        '301 Redirect', 
+                        [
+                            ('Content-type', 'text/html'+self.charset),
+                            ('Location', redirect_url)
+                        ]
+                    )
+                    return []
+                else:
+                    # This gets called with sites such as myopenid.com
+                    form_html = request_.formMarkup(
+                        trust_root, return_to,
+                        form_tag_attrs={'id':'openid_message'})
+                    content = """\
+                        <html><head><title>OpenID transaction in progress</title></head>
+                        <body onload='document.getElementById("%s").submit()'>
+                        %s
+                        </body></html>
+                    """%('openid_message', form_html)
+                    start_response(
+                        "200 OK",
+                        [
+                            ('Content-Type', 'text/html'+self.charset),
+                            ('Content-Length', str(len(content)))
+                        ]
+                    )
+                    return [content]
 
     def process(self, environ, start_response):
         baseurl = self.baseurl or construct_url(
@@ -308,10 +357,11 @@ class AuthOpenIDHandler:
         value = ''
         css_class = 'error'
         message = ''
+
         params = dict(paste.request.parse_querystring(environ))
         oidconsumer = self._get_consumer(environ)
-        info = oidconsumer.complete(dict(params))
-        css_class = 'error'
+        info = oidconsumer.complete(dict(params), params['openid.return_to'])
+
         if info.status == consumer.FAILURE and info.identity_url:
             fmt = "Verification of %s failed."
             message = fmt % (cgi.escape(info.identity_url),)
@@ -320,12 +370,20 @@ class AuthOpenIDHandler:
             )
         elif info.status == consumer.SUCCESS:
             username = info.identity_url
-            user_data = str(info.extensionResponse( 'sreg' ))
+            if info.endpoint.canonicalID:
+                username = cgi.escape(info.endpoint.canonicalID)
+            user_data = str(sreg.SRegResponse.fromSuccessResponse(info).getExtensionArgs())
             # Set the cookie
             if self.urltouser:
                 username = self.urltouser(environ, info.identity_url)
             environ['paste.auth_tkt.set_user'](username, user_data=user_data)
             # Return a page that does a meta refresh
+            session = environ[self.session_middleware]
+            if 'referer' in session:
+                redirect_url = session.pop('referer')
+            else:
+                redirect_url = self.baseurl + self.path_signedin
+
             response = """
 <HTML>
 <HEAD>
@@ -336,17 +394,23 @@ class AuthOpenIDHandler:
 <!-- You are sucessfully signed in. Redirecting... -->
 </BODY>
 </HTML>
-            """ % (self.baseurl + self.path_signedin)
+            """ % (redirect_url)
             start_response(
                 '200 OK', 
                 [
                     ('Content-type', 'text/html'+self.charset),
-                    ('Content-length', len(response))
+                    ('Content-length', str(len(response)))
                 ]
             )
             return response
         elif info.status == consumer.CANCEL:
             message = 'Verification cancelled'
+        elif info.status == consumer.SETUP_NEEDED:
+            if info.setup_url:
+                message = '<a href=%s>Setup needed</a>' % (
+                    self._quoteattr(info.setup_url),)
+            else:
+                message = 'Setup needed'
         else:
             environ['wsgi.errors'].write("Passurl Message: %s"%info.message)
             message = 'Verification failed.'
@@ -362,7 +426,7 @@ class AuthOpenIDHandler:
             '200 OK', 
             [
                 ('Content-type', 'text/html'+self.charset),
-                ('Content-length', len(response))
+                ('Content-length', str(len(response)))
             ]
         )
         return response
@@ -374,16 +438,16 @@ class AuthOpenIDHandler:
     def _get_consumer(self, environ):
         session = environ[self.session_middleware]
         session['id'] = session.id
-        idconsumer = consumer.Consumer(session, self.store)
+        oidconsumer = consumer.Consumer(session, self.store)
+        oidconsumer.consumer.openid1_nonce_query_arg_name = 'passurl_nonce'
         session.save()
-        return idconsumer
+        return oidconsumer
 
     def _quoteattr(self, s):
         if s == None:
             s = ''
         qs = cgi.escape(s, 1)
         return '"%s"' % (qs,)
-            
 
 class OpenIDUserSetter(AuthKitUserSetter):
     def __init__(self, app, **options):
@@ -401,18 +465,10 @@ class OpenIDUserSetter(AuthKitUserSetter):
             sreg_optional=options['sreg_optional'],
             sreg_policyurl=options['sreg_policyurl'],
         )
-
-        if options['session_middleware'] == 'beaker.session':
-            app = SessionMiddleware(
-                app, 
-                key=options['session_key'], 
-                secret=options['session_secret']
-            )
         self.app = app
 
     def __call__(self, environ, start_response):
         return self.app(environ, start_response)
-
 
 def load_openid_config(
     app,
@@ -446,14 +502,8 @@ def load_openid_config(
         'sreg_required': auth_conf.get('sreg.required'),
         'sreg_optional': auth_conf.get('sreg.optional'),
         'sreg_policyurl': auth_conf.get('sreg.policyurl'),
-        # XXX This need to actually be configurable, not hard coded
-        'session_secret': 'asdasd',
-        'session_key': 'authkit_openid',
         'session_middleware': 'beaker.session',
     }
-    if user_setter_params['session_middleware'] == 'beaker.session':
-        if not user_setter_params['session_secret']:
-            raise AuthKitConfigError('No session_secret set')
     auth_handler_params={
         'template':user_setter_params['template'],
         'path_verify':auth_conf.get('path.verify', '/verify'),

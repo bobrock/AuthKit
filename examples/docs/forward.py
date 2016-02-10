@@ -65,7 +65,7 @@ def sample_app(environ, start_response):
 app = middleware(
     sample_app,
     setup_method='forward,cookie',
-    forward_internalpath = '/signin',
+    forward_signinpath = '/signin',
     cookie_signoutpath = '/signout',
     cookie_secret = 'somesecret',
 )

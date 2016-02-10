@@ -42,7 +42,7 @@ to use sha would be a good thing.
 """
 from paste.httpexceptions import HTTPUnauthorized
 from paste.httpheaders import *
-import md5, time, random, urllib2
+import md5, time, random, urllib2, sys
 from authkit.authenticate.multi import MultiHandler, status_checker
 from authkit.authenticate import AuthKitConfigError, get_template, \
    valid_password, get_authenticate_function, strip_base, RequireEnvironKey, \

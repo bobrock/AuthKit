@@ -24,7 +24,7 @@ example again.
 """
 
 from authkit.permissions import UserIn
-from authkit.authorize import authorize, PermissionError
+from authkit.authorize import authorized, authorize, PermissionError
 from authkit.authorize import middleware as authorize_middleware
 from paste import httpexceptions
 
@@ -47,21 +47,6 @@ class AuthorizeExampleApp:
             app = authorize_middleware(app, app.permission)
         return app(environ, start_response) 
 
-    def _authorize(self, permission, environ):
-        """Example implementation of an authorize object that can handle
-        mid-method checks. Framework implementors should create their 
-        own way of doing this."""
-        if permission.require_response:
-            raise Exception(
-                'Cannot _authorize mid-method based on permission'
-                'object since it requires access to the HTTP response'
-            )
-        def start_response(status, headers, exc_info):
-            pass
-        def app(environ, start_response):
-            return []                        
-        permission.check(app, environ, start_response)
-
     def index(self, environ, start_response):
         start_response('200 OK', [('Content-type','text/html')])
         return ['''
@@ -77,7 +62,7 @@ class AuthorizeExampleApp:
             <ul>
                <li><a href="/mid_method_test">Mid Method</a></li>
                <li><a href="/decorator_test">Decorator</a></li>
-               <li><a href="/attribute_test">Attribute</a></li>
+               <li><a href="/attribute_test">Attribute (middleware)</a></li>
             </ul>
             <p>Once you have signed in you will need to close your 
             browser to clear the authentication cache.</p>
@@ -87,14 +72,12 @@ class AuthorizeExampleApp:
 
     def mid_method_test(self, environ, start_response):
         """Authorize using a mid-method permissions check"""
-        try:
-            self._authorize(UserIn(users=['james']), environ)
-        # This line catches both NotAuthenticatedErrors and NotAuthorizedErrors
-        # because PermissionError is their base class.
-        except PermissionError:
-            raise
-        start_response('200 OK', [('Content-type','text/html')])
-        return ['Access granted to /mid_method_test']
+        if authorized(environ, UserIn(users=['james'])):
+            start_response('200 OK', [('Content-type','text/html')])
+            return ['Access granted to /mid_method_test']
+        else:
+            start_response('200 OK', [('Content-type','text/html')])
+            return ['User is not authorized']
 
     @authorize(UserIn(users=['james']))
     def decorator_test(self, environ, start_response):
@@ -122,8 +105,18 @@ if __name__ == '__main__':
     app = httpexceptions.make_middleware(AuthorizeExampleApp())
     app = middleware(
         app, 
-        method='basic', 
-        realm='Test Realm', 
-        users_valid=valid
+        setup_method='basic', 
+        basic_realm='Test Realm', 
+        basic_authenticate_function=valid
     )
+    print """
+Clear the HTTP authentication first by closing your browser if you have been
+testing other basic authentication examples on the same port.
+
+You will be able to sign in as any user as long as the password is the same as
+the username, but all users apart from `james' will be denied access to the
+resources.
+"""
+    
+    
     serve(app, host='0.0.0.0', port=8080)

@@ -27,9 +27,15 @@ def authorize(permission):
     all types of permission objects.
     """
     def validate(func, self, *args, **kwargs):
-        def app(environ, start_response):
+        all_conf = request.environ.get('authkit.config')
+        if all_conf is None:
+            raise Exception('Authentication middleware not present')
+        if all_conf.get('setup.enable', True) is True:
+            def app(environ, start_response):
+                return func(self, *args, **kwargs)
+            return permission.check(app, request.environ, self.start_response)
+        else:
             return func(self, *args, **kwargs)
-        return permission.check(app, request.environ, self.start_response)
     return decorator(validate)
 
 def authorize_request(permission):

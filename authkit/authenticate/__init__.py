@@ -125,6 +125,7 @@ def valid_password(environ, username, password):
         return True
     return False
 
+
 def digest_password(environ, realm, username):
     """
     This is similar to ``valid_password()`` but is used with the ``digest``
@@ -155,6 +156,22 @@ def digest_password(environ, realm, username):
     # After speaking to Clark Evans who wrote the origianl code, this is the 
     # correct thing:
     return None
+
+class AddUsersObjectToEnviron(object):
+    """Simple middleware which adds a Users object to the environ."""
+    def __init__(self, app, key, value, *k, **p):
+        self.app = app
+        self.k = k
+        self.p = p
+        self.key = key
+        self.value = value
+
+    def __call__(self, environ, start_response):
+        p = {}
+        p.update(self.p)
+        p['environ'] = environ
+        environ[self.key] = self.value(*self.k, **p)
+        return self.app(environ, start_response)
 
 def get_authenticate_function(app, authenticate_conf, format, prefix):
     """
@@ -188,9 +205,26 @@ def get_authenticate_function(app, authenticate_conf, format, prefix):
                 user_object = user_conf['type']
             if isinstance(user_object, (str, unicode)):
                 user_object = eval_import(user_object)
-            users = user_object(user_conf['data'], encrypt)
-            app = AddToEnviron(app, 'authkit.users', users)
-            log.debug("authkit.users added to environ")
+
+            if not hasattr(user_object, "api_version"):
+                users = user_object(user_conf['data'], encrypt)
+                app = AddToEnviron(app, 'authkit.users', users)
+                log.debug("authkit.users added to environ")
+            elif user_object.api_version == 0.4:
+                app = AddUsersObjectToEnviron(
+                    app, 
+                    'authkit.users', 
+                    user_object, 
+                    encrypt=encrypt, 
+                    data=user_conf.get('data'),
+                )
+                log.debug("Setting up authkit.users middleware")
+            else:
+                raise Exception(
+                    'Unknown API version %s for user management API'%(
+                        users.api_version,
+                    )
+                )         
             if format == 'basic':
                 function = valid_password
                 log.debug("valid_password chosen %r", function)
@@ -399,9 +433,16 @@ def middleware(app, app_conf=None, global_conf=None, prefix='authkit.',
         )
     if not middleware and not all_conf.has_key('setup.method'):
         raise AuthKitConfigError('No authkit.setup.method was specified')
-    
+
+    # Add the configuration to the environment
+    enable_ =  asbool(all_conf.get('setup.enable', True))
+    all_conf['setup.enable'] = enable_
+    app = AddToEnviron(app, 'authkit.config', all_conf)
+    if all_conf.has_key('setup.fakeuser'):
+        app = AddToEnviron(app, 'REMOTE_USER', all_conf['setup.fakeuser'])
+ 
     # Check to see if middleware is disabled
-    if asbool(all_conf.get('setup.enable', True)) == False:
+    if enable_ == False:
         warnings.warn("AuthKit middleware has been turned off by the config "
                       "option authkit.setup.enable")
         return app

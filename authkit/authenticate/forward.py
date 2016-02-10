@@ -8,6 +8,7 @@ from paste.recursive import RecursiveMiddleware, ForwardRequestException, \
    CheckForRecursionMiddleware
 from authkit.authenticate.multi import MultiHandler, status_checker
 from authkit.authenticate import AuthKitConfigError
+import warnings
 
 class Redirect(object):
     def __init__(self, app, forward_signin):
@@ -40,13 +41,24 @@ def make_forward_handler(
     global_conf=None,
     prefix='authkit.forward', 
 ):
-    if not auth_conf.has_key('internalpath'):
-        raise AuthKitConfigError("No %sinternalpath key specified"%prefix)
+    signin_path = None
+    if auth_conf.has_key('internalpath'):
+        warnings.warn(
+            'The %sinternalpath key is deprecated. Please use '
+            '%ssigninpath.'%(prefix, prefix), 
+            DeprecationWarning, 
+            2
+        )
+        signin_path = auth_conf['internalpath']
+    elif auth_conf.has_key('signinpath'):
+        signin_path = auth_conf['signinpath']
+    else:
+        raise AuthKitConfigError("No %ssigninpath key specified"%prefix)
     app = MultiHandler(app)
     app.add_method(
         'forward', 
         Redirect,  
-        auth_conf['internalpath']
+        signin_path
     )
     app.add_checker('forward', status_checker)
     app = MyRecursive(RecursiveMiddleware(app))

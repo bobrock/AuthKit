@@ -22,13 +22,36 @@ class MultiHandler(multi.MultiHandler):
         status_ = []
         headers_ = []
         exc_info_ = []
-        
+        result_ = []
+
         def app(environ, start_response):
             def find(status, headers, exc_info=None):
                 status_.append(status)
                 headers_.append(headers)
                 exc_info_.append(exc_info)
                 log.debug("Status: %r, Headers: %r", status, headers)
+                # XXX Needs to return the writable
+                if not status_:
+                    raise Exception('WSGI start_response was not called before a result'
+                                    ' was returned')
+                result = check()
+                result_.append(result)
+                if result is None:
+                    log.debug("Multi: No binding was found for the check")
+                    # XXX Shouldn't this be returning the writable to the application?
+                    writable = start_response(
+                        status_[0], 
+                        headers_ and headers_[0] or [],
+                        exc_info_[0]
+                    )
+                    return writable
+                else:
+                    # This application response isn't actually going to be used because
+                    # another application was found to handle the response instead
+                    # so it is this other application's call to start_response()
+                    # which should actually return the writable.
+                    class NotWritableShouldntBeUsed: pass
+                    return NotWritableShouldntBeUsed()
             return self.default(environ, find)
         
         def logging_start_response(status, headers, exc_info=None):
@@ -60,23 +83,16 @@ class MultiHandler(multi.MultiHandler):
             return None
         
         app_iter = app(environ, start_response)
-        if not status_:
-            raise Exception('WSGI start_response was not called before a result'
-                            ' was returned')
-        
-        result = check()
-        if result is None:
-            log.debug("Multi: No binding was found for the check")
-            start_response(status_[0], 
-                           headers_ and headers_[0] or [],
-                           exc_info_[0])
+        if not result_:
+            raise Exception('Invalid WSGI response, did the application return an iterable?')
+        if result_[0] is None:
+            # The check failed and the initial app should be used.
             return app_iter
-        
-        # Close app_iter if necessary
-        if hasattr(app_iter, 'close'):
-            app_iter.close()
-        
-        return result
+        else:
+            # Close the unused app which we don't want
+            if hasattr(app_iter, 'close'):
+                app_iter.close()
+            return result_[0]
 
 def status_checker(environ, status, headers):
     """
