@@ -121,6 +121,7 @@ after all your usual application infrastructure is in place.
 #
 # Imports
 #
+import Cookie
 
 from paste.deploy.converters import asbool
 from paste.auth.auth_tkt import *
